@@ -1,4 +1,4 @@
-import { assertCanViewAuditLog } from "@/lib/services/audit-access";
+import { forbidUnlessAuditViewer } from "@/lib/services/audit-access";
 import {
   AUDIT_EXPORT_LIMIT,
   listAuditLogs,
@@ -7,8 +7,10 @@ import {
 } from "@/lib/services/audit";
 
 export async function GET(request: Request) {
-  // TODO(Prompt 3): assertCanViewAuditLog is a stub. Real RBAC replaces it.
-  assertCanViewAuditLog();
+  const denied = await forbidUnlessAuditViewer();
+  if (denied) {
+    return denied;
+  }
 
   const url = new URL(request.url);
   const params: Record<string, string> = {};

@@ -37,7 +37,7 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 
 - [x] 1. Scaffold the project and build the app shell
 - [x] 2. Audit log
-- [ ] 3. Authentication, roles, and server-side permission checks
+- [x] 3. Authentication, roles, and server-side permission checks
 - [ ] 4. Employee records (status / soft delete, no hard deletes)
 - [ ] 5. Directory and People (HR)
 - [ ] 6. My Space: profile and documents
@@ -55,5 +55,13 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 
 - `AuditLog` is append-only. `audit.log` redacts sensitive fields and can take the current transaction client.
 - The migration revokes `UPDATE`, `DELETE`, and `TRUNCATE` from the app role. A trigger also rejects update and delete.
-- The viewer is `/settings/audit-log` (filters, paging, CSV). `assertCanViewAuditLog()` is a stub until step 3.
-- `npm run db:up` starts a local non-superuser database. No scheduled jobs. Roles are still not enforced.
+- The viewer is `/settings/audit-log` (filters, paging, CSV). Access was a stub in this step and is enforced in step 3.
+- `npm run db:up` starts a local non-superuser database. No scheduled jobs.
+
+## Step 3 notes
+
+- Auth.js database sessions. Google and Microsoft Entra sign-in are limited to `AUTH_ALLOWED_EMAIL_DOMAIN` and require an existing active user. The dev password form is disabled in production.
+- `can()` in `src/lib/permissions.ts` is used by the proxy, pages, actions, and the sidebar. Managers are scoped to direct reports once employee records exist.
+- Settings → Users and roles is Super Admin only. The audit log viewer and CSV export are Super Admin and HR Admin. The step 2 stub gate is replaced.
+- Each request checks status, expiry, and idle timeout (shorter for admin roles). This is not a scheduled job. Login, logout, failed login, role changes, and deactivation or reactivation are audited.
+- MFA for admin roles is documented in the README and enforced at the SSO provider.

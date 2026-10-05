@@ -1,8 +1,10 @@
 /**
- * Seed skeleton. No rows are inserted until employee data exists.
- * Later steps should write records through getDb() from src/lib/db.ts.
+ * Creates the first Super Admin when AUTH_BOOTSTRAP_ADMIN_EMAIL is set.
+ * Existing users are left unchanged. Re-running the seed does not reset roles.
  */
 import "dotenv/config";
+import { getDb } from "@/lib/db";
+import { ensureBootstrapAdmin } from "@/lib/services/users";
 
 async function main() {
   if (!process.env.DATABASE_URL) {
@@ -10,7 +12,9 @@ async function main() {
     return;
   }
 
-  console.log("Seed skeleton: no records to insert yet.");
+  const message = await ensureBootstrapAdmin();
+  console.log(message);
+  await getDb().$disconnect();
 }
 
 main().catch((error: unknown) => {

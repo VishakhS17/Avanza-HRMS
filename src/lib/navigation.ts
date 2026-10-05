@@ -13,26 +13,20 @@ import {
   Users,
   type LucideIcon,
 } from "lucide-react";
-
-export const appRoles = ["employee", "manager", "hr", "admin"] as const;
-
-export type AppRole = (typeof appRoles)[number];
+import { can, type Action, type Principal } from "@/lib/permissions";
 
 export type NavItem = {
   title: string;
   href: string;
   description: string;
   icon: LucideIcon;
-  /** Intended audience. Ignored until permission checks exist. */
-  roles: readonly AppRole[];
+  action: Action;
 };
 
 export type NavSection = {
   label?: string;
   items: NavItem[];
 };
-
-const everyone = appRoles;
 
 export const navSections: NavSection[] = [
   {
@@ -42,14 +36,14 @@ export const navSections: NavSection[] = [
         href: "/",
         description: "Your starting point in Avanza HRMS.",
         icon: House,
-        roles: everyone,
+        action: "app.view",
       },
       {
         title: "Inbox",
         href: "/inbox",
         description: "Requests and messages that need attention.",
         icon: Inbox,
-        roles: everyone,
+        action: "app.view",
       },
     ],
   },
@@ -61,35 +55,35 @@ export const navSections: NavSection[] = [
         href: "/my-space/profile",
         description: "Your personal and job details.",
         icon: User,
-        roles: everyone,
+        action: "app.view",
       },
       {
         title: "Attendance",
         href: "/my-space/attendance",
         description: "Your time and attendance records.",
         icon: Clock,
-        roles: everyone,
+        action: "app.view",
       },
       {
         title: "Leave",
         href: "/my-space/leave",
         description: "Your leave requests and balances.",
         icon: CalendarOff,
-        roles: everyone,
+        action: "app.view",
       },
       {
         title: "Documents",
         href: "/my-space/documents",
         description: "Files shared with you.",
         icon: FileText,
-        roles: everyone,
+        action: "app.view",
       },
       {
         title: "Holidays",
         href: "/my-space/holidays",
         description: "Company holidays.",
         icon: CalendarDays,
-        roles: everyone,
+        action: "app.view",
       },
     ],
   },
@@ -100,14 +94,14 @@ export const navSections: NavSection[] = [
         href: "/directory",
         description: "Find people at Avanza Logistics.",
         icon: BookUser,
-        roles: everyone,
+        action: "app.view",
       },
       {
         title: "My Team",
         href: "/my-team",
         description: "People who report to you.",
         icon: Users,
-        roles: ["manager", "hr", "admin"],
+        action: "team.view",
       },
     ],
   },
@@ -119,7 +113,7 @@ export const navSections: NavSection[] = [
         href: "/people",
         description: "Employee records for HR.",
         icon: Contact,
-        roles: ["hr", "admin"],
+        action: "people.view",
       },
     ],
   },
@@ -130,14 +124,14 @@ export const navSections: NavSection[] = [
         href: "/reports",
         description: "HR summaries and exports.",
         icon: ChartColumn,
-        roles: ["manager", "hr", "admin"],
+        action: "reports.view",
       },
       {
         title: "Settings",
         href: "/settings",
         description: "Workspace configuration.",
         icon: Settings,
-        roles: ["admin"],
+        action: "settings.view",
       },
     ],
   },
@@ -151,12 +145,6 @@ export function findNavItem(href: string): NavItem | undefined {
   return flattenNavItems().find((item) => item.href === href);
 }
 
-/**
- * Visibility stub. Every item is shown until server-side permission checks exist.
- * The arguments are part of the future signature and are unused on purpose.
- */
-export function isNavItemVisible(item: NavItem, role: AppRole | null): boolean {
-  void item;
-  void role;
-  return true;
+export function isNavItemVisible(item: NavItem, user: Principal | null): boolean {
+  return can(user, item.action);
 }

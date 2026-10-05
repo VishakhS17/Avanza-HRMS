@@ -1,5 +1,6 @@
-// Employee and HR models are added in later steps.
+// Employee records are added in a later step.
 // AuditLog is append-only. The migration removes UPDATE and DELETE from the app role.
+// Users are not hard-deleted. Deactivate them instead.
 
 generator client {
   provider = "prisma-client"
@@ -8,6 +9,72 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  HR_ADMIN
+  MANAGER
+  EMPLOYEE
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+/// A person who can sign in. HR creates the row. SSO does not.
+model User {
+  id              String     @id @default(cuid())
+  name            String
+  email           String     @unique
+  emailVerified   DateTime?
+  image           String?    @db.Text
+  status          UserStatus @default(ACTIVE)
+  /// Assigned roles. EMPLOYEE is always stored. MANAGER here is an explicit
+  /// assignment. Direct reports add MANAGER at read time once employees exist.
+  roles           UserRole[] @default([EMPLOYEE])
+  statusReason    String?
+  statusChangedAt DateTime?
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+  accounts        Account[]
+  sessions        Session[]
+
+  @@index([status])
+  @@map("users")
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  lastActiveAt DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
 }
 
 /// Append-only record of a state change. Rows are inserted, never updated or deleted.

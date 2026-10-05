@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { Bell, Menu } from "lucide-react";
-import { StatusBadge } from "@/components/shared/status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -13,12 +12,25 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { signOutAction } from "@/lib/auth-actions";
+import { roleSummary, type Principal } from "@/lib/permissions";
 
 type TopBarProps = {
+  user: Principal;
   onMenuClick: () => void;
 };
 
-export function TopBar({ onMenuClick }: TopBarProps) {
+function initials(name: string): string {
+  const letters = name
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map((part) => part[0]?.toUpperCase() ?? "")
+    .join("");
+  return letters || "U";
+}
+
+export function TopBar({ user, onMenuClick }: TopBarProps) {
   return (
     <header className="flex h-14 shrink-0 items-center gap-3 border-b border-border bg-card px-4">
       <Button
@@ -57,30 +69,34 @@ export function TopBar({ onMenuClick }: TopBarProps) {
             >
               <Avatar size="sm">
                 <AvatarFallback>
-                  <span className="text-xs font-medium">AU</span>
+                  <span className="text-xs font-medium">{initials(user.name)}</span>
                 </AvatarFallback>
               </Avatar>
               <span className="hidden text-left sm:block">
                 <span className="block text-sm leading-tight font-medium">
-                  Preview user
+                  {user.name}
                 </span>
                 <span className="block text-xs text-muted-foreground">
-                  Not signed in
+                  {roleSummary(user.roles)}
                 </span>
               </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
             <DropdownMenuLabel className="space-y-1">
-              <span className="block">Preview user</span>
-              <StatusBadge status="neutral">Preview</StatusBadge>
+              <span className="block">{user.name}</span>
+              <span className="block text-xs font-normal text-muted-foreground">{user.email}</span>
             </DropdownMenuLabel>
             <DropdownMenuSeparator />
             <DropdownMenuItem asChild>
               <Link href="/my-space/profile">Profile</Link>
             </DropdownMenuItem>
-            <DropdownMenuItem disabled>
-              Sign out arrives with authentication
+            <DropdownMenuItem asChild>
+              <form action={signOutAction}>
+                <button type="submit" className="w-full text-left">
+                  Sign out
+                </button>
+              </form>
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

@@ -3,13 +3,15 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "cn";
+import type { Principal } from "@/lib/permissions";
 import { isNavItemVisible, navSections } from "@/lib/navigation";
 
 type SidebarNavProps = {
+  user: Principal;
   onNavigate?: () => void;
 };
 
-export function SidebarNav({ onNavigate }: SidebarNavProps) {
+export function SidebarNav({ user, onNavigate }: SidebarNavProps) {
   const pathname = usePathname();
 
   return (
@@ -23,7 +25,7 @@ export function SidebarNav({ onNavigate }: SidebarNavProps) {
       <nav className="flex-1 space-y-5 overflow-y-auto px-3 py-4">
         {navSections.map((section, sectionIndex) => {
           const items = section.items.filter((item) =>
-            isNavItemVisible(item, null),
+            isNavItemVisible(item, user),
           );
 
           if (items.length === 0) {

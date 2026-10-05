@@ -117,8 +117,7 @@ export default async function AuditLogPage({
 }: {
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
-  // TODO(Prompt 3): assertCanViewAuditLog is a stub. Real RBAC replaces it.
-  assertCanViewAuditLog();
+  await assertCanViewAuditLog();
 
   const search = parseAuditLogSearch(await searchParams);
   const exportHref = `/settings/audit-log/export${queryString(search)}`;
@@ -154,9 +153,6 @@ export default async function AuditLogPage({
             </Button>
           }
         />
-        <p className="text-sm text-muted-foreground">
-          Access control is a temporary stub. Admin checks arrive with roles in the next step.
-        </p>
       </div>
 
       <form
