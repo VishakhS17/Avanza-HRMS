@@ -23,7 +23,7 @@ The app is light by default. A `.dark` token set exists and is not switched on.
 ## Rules
 
 - All permission checks are server-side.
-- Every state change writes to the audit log once that log exists.
+- Every state change writes to the audit log in the same database transaction (`audit.log` in `src/lib/services/audit.ts`).
 - No hard deletes of employee data. Use status or a soft delete.
 - No self-approval.
 - Business logic lives in `src/lib/services`, not in components.
@@ -36,8 +36,8 @@ The app is light by default. A `.dark` token set exists and is not switched on.
 Steps 2–9 follow the areas named in the project brief. Rename a step if a later prompt scopes it differently.
 
 - [x] 1. Scaffold the project and build the app shell
-- [ ] 2. Authentication, roles, and server-side permission checks
-- [ ] 3. Audit log
+- [x] 2. Audit log
+- [ ] 3. Authentication, roles, and server-side permission checks
 - [ ] 4. Employee records (status / soft delete, no hard deletes)
 - [ ] 5. Directory and People (HR)
 - [ ] 6. My Space: profile and documents
@@ -50,3 +50,10 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - App shell, theme tokens, shared components, Prisma skeleton, and env placeholders are in place.
 - No business logic, models, auth, or scheduled jobs.
 - Sidebar role lists are stored on each item and not enforced.
+
+## Step 2 notes
+
+- `AuditLog` is append-only. `audit.log` redacts sensitive fields and can take the current transaction client.
+- The migration revokes `UPDATE`, `DELETE`, and `TRUNCATE` from the app role. A trigger also rejects update and delete.
+- The viewer is `/settings/audit-log` (filters, paging, CSV). `assertCanViewAuditLog()` is a stub until step 3.
+- `npm run db:up` starts a local non-superuser database. No scheduled jobs. Roles are still not enforced.

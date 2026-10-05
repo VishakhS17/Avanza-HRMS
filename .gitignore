@@ -34,6 +34,9 @@ yarn-error.log*
 .env*
 !.env.example
 
+# local Postgres cluster created by npm run db:up
+/.data/
+
 # generated Prisma client
 /src/generated
 

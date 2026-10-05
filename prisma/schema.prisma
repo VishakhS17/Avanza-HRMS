@@ -1,4 +1,5 @@
 // Employee and HR models are added in later steps.
+// AuditLog is append-only. The migration removes UPDATE and DELETE from the app role.
 
 generator client {
   provider = "prisma-client"
@@ -7,4 +8,25 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+/// Append-only record of a state change. Rows are inserted, never updated or deleted.
+model AuditLog {
+  id          String   @id @default(cuid())
+  timestamp   DateTime @default(now())
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String
+  before      Json?
+  after       Json?
+  ipAddress   String?
+  userAgent   String?
+  reason      String?
+
+  @@index([timestamp])
+  @@index([actorUserId])
+  @@index([action])
+  @@index([entityType, entityId])
+  @@map("audit_log")
 }
