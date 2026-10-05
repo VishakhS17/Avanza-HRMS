@@ -1,36 +1,101 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Avanza HRMS
 
-## Getting Started
+Internal HR system for Avanza Logistics. Web-first and usable on mobile browsers. One developer, so the app stays small and direct.
 
-First, run the development server:
+## Stack
+
+- Next.js (App Router) and TypeScript
+- Tailwind CSS and shadcn/ui
+- PostgreSQL and Prisma
+- Auth.js (reserved; not wired up yet)
+
+## Prerequisites
+
+- Node.js 20.9 or newer
+- npm
+- PostgreSQL, when you start storing data. The shell runs without a database.
+
+## Local setup
 
 ```bash
+npm install
+cp .env.example .env
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+On Windows PowerShell, copy the env file with `Copy-Item .env.example .env`.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Open [http://localhost:3000](http://localhost:3000).
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`npm install` runs `prisma generate`. Postgres is only required for migrations, seeding real data, and later features. Create a database named `avanza_hrms` (or change `DATABASE_URL`) before the first migration.
 
-## Learn More
+## Environment variables
 
-To learn more about Next.js, take a look at the following resources:
+| Variable | Required now | Purpose |
+| --- | --- | --- |
+| `DATABASE_URL` | No, until data features | PostgreSQL connection string |
+| `AUTH_SECRET` | No | Reserved for Auth.js |
+| `AUTH_URL` | No | Reserved for Auth.js. Defaults to `http://localhost:3000` in code when unset |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Copy `.env.example` to `.env`. Do not commit `.env`.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Scripts
 
-## Deploy on Vercel
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the dev server |
+| `npm run build` | Production build |
+| `npm run start` | Run the production server |
+| `npm run lint` | Run ESLint |
+| `npm run db:generate` | Generate the Prisma client |
+| `npm run db:migrate` | Create and apply a dev migration (needs Postgres and models) |
+| `npm run db:seed` | Run the seed script |
+| `npm run db:studio` | Open Prisma Studio |
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+There are no models or scheduled jobs yet. The seed script prints a message and inserts nothing.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Project structure
+
+```text
+src/app/(app)/          Routes and the app-shell layout
+src/components/layout/  Sidebar, top bar, shell
+src/components/shared/  PageHeader, DataTable, StatusBadge, EmptyState, ConfirmDialog, FormField
+src/components/ui/      shadcn/ui primitives
+src/lib/                env, database client, navigation
+src/lib/services/       Business logic (empty until later steps)
+prisma/schema.prisma    Database schema
+prisma/seed.ts          Seed skeleton
+prisma7.config.ts       Prisma 7 config
+docs/PROGRESS.md        Build checklist
+```
+
+Colors live in `src/app/globals.css` as Tailwind theme tokens. Components use those tokens (`bg-primary`, `text-secondary`, and so on).
+
+## Roles
+
+Roles are not enforced yet. The sidebar shows every section. `isNavItemVisible` in `src/lib/navigation.ts` is a stub that always returns true. Each item records an intended audience for a later step:
+
+| Section | Intended roles (not enforced) |
+| --- | --- |
+| Home, Inbox, My Space, Directory | employee, manager, hr, admin |
+| My Team, Reports | manager, hr, admin |
+| People (HR) | hr, admin |
+| Settings | admin |
+
+Permission checks will be server-side. No one will approve their own requests.
+
+## Rules
+
+- Permission checks run on the server.
+- State changes will be written to the audit log once that log exists.
+- Employee data is not hard-deleted. Use status or a soft delete.
+- Business logic belongs in `src/lib/services`, not in components.
+
+## Changelog
+
+### 2026-10-05
+
+- Scaffolded Next.js, TypeScript, Tailwind, shadcn/ui, Prisma, env handling, and a seed skeleton.
+- Added Avanza theme tokens, the app shell, sidebar sections, and shared UI components.
+- Reserved `AUTH_SECRET` and `AUTH_URL` for Auth.js. Authentication is not implemented.
+- No roles, permissions, audit log, models, or scheduled jobs yet.

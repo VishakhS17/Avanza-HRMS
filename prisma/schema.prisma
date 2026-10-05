@@ -1,0 +1,10 @@
+// Employee and HR models are added in later steps.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
