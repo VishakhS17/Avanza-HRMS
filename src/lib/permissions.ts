@@ -21,6 +21,7 @@ export const ACTIONS = [
   "audit.view",
   "users.manage",
   "employee.view",
+  "employee.sensitive.view",
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
@@ -64,6 +65,7 @@ export const PERMISSIONS: Record<Action, PermissionRule> = {
     roles: ["EMPLOYEE", "MANAGER", "HR_ADMIN", "SUPER_ADMIN"],
     scope: "direct-reports",
   },
+  "employee.sensitive.view": { roles: ["HR_ADMIN"] },
 };
 
 /** Longer prefixes first so `/settings/users` does not match `/settings` only. */
@@ -98,7 +100,7 @@ export function isRole(value: string): value is Role {
 
 /**
  * Every user is an employee. MANAGER is explicit, or derived when the person
- * has at least one direct report. Employee records are added in a later step.
+ * has at least one current direct report.
  */
 export function effectiveRoles(input: {
   assignedRoles: readonly string[];

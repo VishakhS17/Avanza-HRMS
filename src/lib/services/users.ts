@@ -8,6 +8,7 @@ import {
   type Role,
 } from "@/lib/permissions";
 import { AUDIT_ACTIONS, audit } from "@/lib/services/audit";
+import { listDirectReportIds } from "@/lib/services/reporting";
 import { allowedEmailDomain, isCompanyEmail, normalizeEmail } from "@/lib/services/auth-policy";
 
 export class UserAdminError extends Error {
@@ -34,14 +35,7 @@ export type ListedUser = {
   updatedAt: string;
 };
 
-/**
- * Employee records are added in a later step. Until then nobody has direct reports,
- * and the manager role comes only from explicit assignment.
- */
-export async function listDirectReportIds(managerUserId: string): Promise<string[]> {
-  void managerUserId;
-  return [];
-}
+export { listDirectReportIds };
 
 function requiredName(value: string): string {
   const name = value.trim();

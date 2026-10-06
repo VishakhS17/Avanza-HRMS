@@ -57,6 +57,7 @@ Open [http://localhost:3000](http://localhost:3000). You are sent to `/login` un
 | `AUTH_DEV_PASSWORD` | For dev login | Shared password that signs in an existing active user. It does not create accounts. Ignored in production. |
 | `AUTH_IDLE_TIMEOUT_MINUTES` | No | Idle timeout for non-admin roles. Default 480 (8 hours). Checked on each request. |
 | `AUTH_ADMIN_IDLE_TIMEOUT_MINUTES` | No | Idle timeout for Super Admin and HR Admin. Default 15. Checked on each request. |
+| `EMPLOYEE_DATA_KEY` | For bank and ID fields | 32-byte key, base64-encoded. Encrypts bank details and government ID numbers. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. |
 | `POSTGRES_BIN` | No | Optional path to the PostgreSQL `bin` directory used by `npm run db:up`. |
 
 Copy `.env.example` to `.env`. Do not commit `.env`.
@@ -97,7 +98,7 @@ Microsoft Entra ID:
 | `npm run db:migrate` | Create and apply a dev migration |
 | `npm run db:seed` | Create the bootstrap Super Admin if that email is missing |
 | `npm run db:studio` | Open Prisma Studio |
-| `npm test` | Run permission, sign-in, session, user-admin, and audit log tests |
+| `npm test` | Run permission, sign-in, session, user-admin, audit log, and employee scoping tests |
 
 There are no scheduled jobs. Idle timeout and user status are checked on each request. System jobs can pass `actor: null` when they write an audit row.
 
@@ -108,15 +109,20 @@ src/proxy.ts            Route protection (Next.js proxy). Public: /login and /ap
 src/app/login/          Sign-in page and the dev-only password form
 src/app/api/auth/       Auth.js route handler
 src/app/(app)/          Signed-in routes and the app-shell layout
+src/app/(app)/people/      HR employee list, create, and detail
+src/app/(app)/directory/   Company directory
+src/app/(app)/my-team/     Direct reports
 src/app/(app)/settings/users/   Super Admin user and role management
+src/app/(app)/settings/organization/  Departments, designations, locations
 src/app/(app)/settings/audit-log/  Audit log viewer and CSV export
+src/app/api/employees/[id]/  Employee JSON. Same scope as the pages.
 src/components/layout/  Sidebar, top bar, shell
 src/components/shared/  PageHeader, DataTable, StatusBadge, EmptyState, ConfirmDialog, FormField
 src/components/ui/      shadcn/ui primitives
 src/lib/auth.ts         Auth.js config
 src/lib/permissions.ts  Permission map and can()
 src/lib/services/       Business logic, including audit, sessions, and users
-prisma/schema.prisma    User, Account, Session, and AuditLog
+prisma/schema.prisma    User, Account, Session, AuditLog, Employee, Employment, and organization masters
 prisma/seed.ts          Bootstrap Super Admin
 prisma/migrations/      SQL migrations, including the append-only grants
 prisma7.config.ts       Prisma 7 config
@@ -128,7 +134,7 @@ Colors live in `src/app/globals.css` as Tailwind theme tokens. Components use th
 
 ## Roles and permissions
 
-Every user is an Employee. Roles are stored on the user and always include `EMPLOYEE`. `MANAGER` is also added when the person has direct reports. Employee records are not built yet, so that derivation returns no reports until a later step. A Super Admin can still assign `MANAGER` explicitly.
+Every user is an Employee. Roles are stored on the user and always include `EMPLOYEE`. `MANAGER` is also added when the current job row has direct reports who are active or on notice. A Super Admin can still assign `MANAGER` explicitly.
 
 `can(user, action, resource)` in `src/lib/permissions.ts` is the only permission map. Server pages, server actions, route handlers, the proxy, and the sidebar all use it. Managers are limited to themselves and their direct reports for `employee.view` and `reports.view`. HR Admin and Super Admin are not limited to a team.
 
@@ -139,14 +145,18 @@ Every user is an Employee. Roles are stored on the user and always include `EMPL
 | People | HR Admin, Super Admin |
 | Reports | Manager (direct reports), HR Admin, Super Admin |
 | Settings | HR Admin, Super Admin |
+| Settings → Organization | HR Admin, Super Admin |
 | Settings → Audit log | HR Admin, Super Admin |
 | Settings → Users and roles | Super Admin |
+| Reveal bank details and ID numbers | HR Admin |
 
 A role that fails a page check is redirected to `/forbidden`. `/settings/audit-log/export` and `/api/*` return JSON `403`.
 
 Sessions are stored in the database. Each request loads the user and rejects the session when the user is inactive, the session is expired, or it has been idle too long. Deactivation deletes that user's sessions in the same transaction, so the next request is signed out. An active session also ends after 7 days. Admin roles idle out after 15 minutes by default. Other roles idle out after 8 hours. Both are env-configurable and are not a cron job.
 
-A Super Admin cannot change their own roles or status. The last active Super Admin cannot be demoted or deactivated. Users are not hard-deleted.
+A Super Admin cannot change their own roles or status. The last active Super Admin cannot be demoted, deactivated, or marked exited. Users and employees are not hard-deleted. An exited employee is signed out.
+
+HR Admin and Super Admin can create an employee. That also creates the matching user with the Employee role, using the work email as the sign-in address. The employee can edit their own phone, address, and emergency contact. Job fields, name, and work email stay with HR. A manager can open only their own record and current direct reports, including by URL and `GET /api/employees/{id}`. Bank details, PAN, and government ID numbers are encrypted with `EMPLOYEE_DATA_KEY`, masked on screen, and revealed only by HR Admin. A reveal writes an audit row and does not store the value.
 
 No one will approve their own requests. Approval flows are a later step.
 
@@ -178,7 +188,7 @@ await db.$transaction(async (tx) => {
 });
 ```
 
-Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. There is no update or delete helper. The migration revokes `UPDATE`, `DELETE`, and `TRUNCATE` from the app role, and a trigger rejects update and delete statements.
+Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. There is no update or delete helper. The migration revokes `UPDATE`, `DELETE`, and `TRUNCATE` from the app role, and a trigger rejects update and delete statements.
 
 The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:3000/settings/audit-log). Filter by date (IST calendar days), actor, action, and entity. Results are paged at 25 rows. CSV export downloads the current filter, up to 5,000 rows. HR Admin and Super Admin can open it. Other roles cannot, including by calling the export URL directly.
 
@@ -206,3 +216,11 @@ The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:300
 - Each request checks user status, expiry, and idle timeout. Admin idle is shorter. Deactivation drops sessions immediately.
 - Login, logout, failed login, role changes, and deactivation or reactivation are written to the audit log.
 - MFA for admin roles is configured at Google Workspace or Entra, documented above. No scheduled jobs were added.
+
+### 2026-10-06 — Employees and organization
+
+- Added employee records, effective-dated employment history, and department, designation, and location masters.
+- HR can list, add, and edit employees. Creating an employee also creates their sign-in user. Employees edit their own contact and emergency details.
+- The directory lists people who are active or on notice. Managers see only current direct reports.
+- Bank details and government ID numbers are encrypted with `EMPLOYEE_DATA_KEY` and masked. HR Admin reveals are audited.
+- No hard delete, and no new scheduled jobs.

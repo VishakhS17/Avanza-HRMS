@@ -38,7 +38,7 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - [x] 1. Scaffold the project and build the app shell
 - [x] 2. Audit log
 - [x] 3. Authentication, roles, and server-side permission checks
-- [ ] 4. Employee records (status / soft delete, no hard deletes)
+- [x] 4. Employee records (status / soft delete, no hard deletes)
 - [ ] 5. Directory and People (HR)
 - [ ] 6. My Space: profile and documents
 - [ ] 7. Attendance and holidays
@@ -65,3 +65,9 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - Settings → Users and roles is Super Admin only. The audit log viewer and CSV export are Super Admin and HR Admin. The step 2 stub gate is replaced.
 - Each request checks status, expiry, and idle timeout (shorter for admin roles). This is not a scheduled job. Login, logout, failed login, role changes, and deactivation or reactivation are audited.
 - MFA for admin roles is documented in the README and enforced at the SSO provider.
+
+## Step 4 notes
+
+- `Employee` shares its id with `User`. Job data is on `Employment`. One open row per employee uses `openKey` (the employee id while current, null once closed).
+- HR people screens, the directory, My Profile contact edits, My Team direct reports, and organization settings are included here.
+- Bank details and government IDs are encrypted with `EMPLOYEE_DATA_KEY`. Reveals are HR Admin only and audited. No hard deletes and no scheduled jobs.

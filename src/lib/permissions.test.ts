@@ -48,6 +48,10 @@ describe("can", () => {
     assert.equal(can(hr, "settings.view"), true);
     assert.equal(can(hr, "audit.view"), true);
     assert.equal(can(hr, "users.manage"), false);
+    assert.equal(can(hr, "employee.sensitive.view"), true);
+    assert.equal(can(admin, "employee.sensitive.view"), false);
+    assert.equal(can(manager, "employee.sensitive.view"), false);
+    assert.equal(can(employee, "employee.sensitive.view"), false);
     assert.equal(can(admin, "settings.view"), true);
     assert.equal(can(admin, "audit.view"), true);
     assert.equal(can(admin, "users.manage"), true);

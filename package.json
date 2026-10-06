@@ -14,7 +14,7 @@
     "db:studio": "prisma studio",
     "db:up": "node scripts/dev-postgres.mjs up",
     "db:down": "node scripts/dev-postgres.mjs down",
-    "test": "node --env-file=.env --import tsx --test src/lib/permissions.test.ts src/lib/services/auth-policy.test.ts src/lib/services/session.test.ts src/lib/services/users.test.ts src/lib/services/audit.test.ts"
+    "test": "node --env-file=.env --import tsx --test src/lib/permissions.test.ts src/lib/services/auth-policy.test.ts src/lib/services/session.test.ts src/lib/services/users.test.ts src/lib/services/audit.test.ts src/lib/services/employees.test.ts"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",

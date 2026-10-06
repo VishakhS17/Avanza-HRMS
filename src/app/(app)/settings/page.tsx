@@ -34,6 +34,17 @@ export default async function SettingsPage() {
             </div>
           </section>
         ) : null}
+        <section className="rounded-xl border border-border bg-card p-5">
+          <h2 className="text-base font-medium text-foreground">Organization</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Departments, designations, and locations. Inactive rows stay on job history.
+          </p>
+          <div className="mt-4">
+            <Button variant="secondary" asChild>
+              <Link href="/settings/organization">Manage organization</Link>
+            </Button>
+          </div>
+        </section>
         {canViewAudit ? (
           <section className="rounded-xl border border-border bg-card p-5">
             <h2 className="text-base font-medium text-foreground">Audit log</h2>
