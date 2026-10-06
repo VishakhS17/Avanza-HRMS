@@ -1,6 +1,8 @@
-// Employee records are added in a later step.
 // AuditLog is append-only. The migration removes UPDATE and DELETE from the app role.
-// Users are not hard-deleted. Deactivate them instead.
+// Users and employees are not hard-deleted. Deactivate users and set employees to EXITED.
+// Job data lives on Employment so promotions, transfers, and manager changes keep history.
+// One open Employment per employee: openKey equals employeeId while endDate is null, then null.
+// Postgres unique indexes allow many nulls, so closed rows do not collide.
 
 generator client {
   provider = "prisma-client"
@@ -40,6 +42,7 @@ model User {
   updatedAt       DateTime   @updatedAt
   accounts        Account[]
   sessions        Session[]
+  employee        Employee?
 
   @@index([status])
   @@map("users")
@@ -96,4 +99,126 @@ model AuditLog {
   @@index([action])
   @@index([entityType, entityId])
   @@map("audit_log")
+}
+
+enum EmployeeStatus {
+  PRE_JOINING
+  ACTIVE
+  NOTICE
+  EXITED
+}
+
+enum Gender {
+  FEMALE
+  MALE
+  OTHER
+  PREFER_NOT_TO_SAY
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+}
+
+model Department {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  employments Employment[]
+
+  @@map("departments")
+}
+
+model Designation {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  employments Employment[]
+
+  @@map("designations")
+}
+
+model Location {
+  id          String       @id @default(cuid())
+  name        String       @unique
+  city        String?
+  isActive    Boolean      @default(true)
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+  employments Employment[]
+
+  @@map("locations")
+}
+
+/// HR record for a person who can sign in. The id matches User.id.
+/// Bank details and government IDs are ciphertext. Do not hard-delete.
+model Employee {
+  id                String         @id
+  employeeCode      String         @unique
+  name              String
+  workEmail         String         @unique
+  phone             String?
+  dateOfBirth       DateTime?      @db.Date
+  gender            Gender?
+  joiningDate       DateTime       @db.Date
+  status            EmployeeStatus
+  addressLine1      String?
+  addressLine2      String?
+  city              String?
+  state             String?
+  postalCode        String?
+  country           String?
+  emergencyName     String?
+  emergencyRelation String?
+  emergencyPhone    String?
+  bankAccountName   String?        @db.Text
+  bankName          String?        @db.Text
+  bankAccountNumber String?        @db.Text
+  bankAccountLast4  String?
+  bankIfsc          String?        @db.Text
+  pan               String?        @db.Text
+  panLast4          String?
+  governmentId      String?        @db.Text
+  governmentIdLast4 String?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  user              User           @relation(fields: [id], references: [id])
+  employments       Employment[]
+  managedEmployments Employment[]  @relation("ReportingManager")
+
+  @@index([status])
+  @@map("employees")
+}
+
+/// One row per job change. The open row has a null endDate.
+model Employment {
+  id                 String         @id @default(cuid())
+  employeeId         String
+  designationId      String
+  departmentId       String
+  locationId         String
+  reportingManagerId String?
+  employmentType     EmploymentType
+  startDate          DateTime       @db.Date
+  endDate            DateTime?      @db.Date
+  /// employeeId while this row is current. Null once closed.
+  openKey            String?        @unique
+  createdAt          DateTime       @default(now())
+  employee           Employee       @relation(fields: [employeeId], references: [id])
+  designation        Designation    @relation(fields: [designationId], references: [id])
+  department         Department     @relation(fields: [departmentId], references: [id])
+  location           Location       @relation(fields: [locationId], references: [id])
+  reportingManager   Employee?      @relation("ReportingManager", fields: [reportingManagerId], references: [id])
+
+  @@index([employeeId, startDate])
+  @@index([reportingManagerId])
+  @@index([departmentId])
+  @@index([locationId])
+  @@map("employments")
 }
