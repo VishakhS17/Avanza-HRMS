@@ -13,9 +13,9 @@ Internal HR system for Avanza Logistics. Web-first and usable on mobile browsers
 
 - Node.js 20.9 or newer
 - npm
-- PostgreSQL 18 binaries for `npm run db:up`
+- A Neon database. This app uses the Avanza HRMS project.
 
-Sign-in and every signed-in page need the database. The login page can render before Postgres is up, but a sign-in attempt will fail until `npm run db:up` and `npm run db:migrate` have been run.
+Sign-in and every signed-in page need the database. The login page can render before the database is reachable, but a sign-in attempt fails until `DATABASE_URL` is set and `npm run db:migrate` has been run.
 
 ## Local setup
 
@@ -36,13 +36,16 @@ Open [http://localhost:3000](http://localhost:3000). You are sent to `/login` un
 
 `npm install` runs `prisma generate`.
 
-`npm run db:up` starts a project-local Postgres on `127.0.0.1:5433` and creates the `avanza_app` role and `avanza_hrms` database. Data lives in `.data/`, which is gitignored. The first start can take a few minutes. `npm run db:down` stops it. This cluster is separate from any Postgres already using port 5432. If `initdb` is not on the default PostgreSQL 18 path, set `POSTGRES_BIN` to that `bin` directory before `npm run db:up`.
+The app reads `DATABASE_URL`, the Neon pooled connection string. Prisma migrate and seed read `DATABASE_URL_UNPOOLED`, the direct string for the same database (hostname without `-pooler`). Both belong in `.env`. Do not commit that file.
+
+`npm run db:up` still starts a separate Postgres cluster on `127.0.0.1:5433`. The app does not use it. Data for that cluster lives in `.data/`, which is gitignored. `npm run db:down` stops it. If `initdb` is not on the default PostgreSQL 18 path, set `POSTGRES_BIN` to that `bin` directory before `npm run db:up`.
 
 ## Environment variables
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Yes | PostgreSQL connection string. The role must not be a superuser, because superusers ignore `GRANT` and `REVOKE`. `npm run db:up` creates `avanza_app` for this. |
+| `DATABASE_URL` | Yes | Neon pooled connection string. The Next.js app uses this. The role must not be a superuser, because superusers ignore `GRANT` and `REVOKE`. |
+| `DATABASE_URL_UNPOOLED` | Yes | Direct Neon connection string for Prisma migrate and seed. Same database as `DATABASE_URL`, without the `-pooler` host. |
 | `AUTH_SECRET` | Yes | Auth.js secret. Generate one with `npx auth secret`. |
 | `AUTH_URL` | No | Public app URL. Defaults to `http://localhost:3000`. Use `https://` in production so the session cookie is marked Secure. |
 | `AUTH_ALLOWED_EMAIL_DOMAIN` | Yes | Company email domain. Sign-in is rejected unless the address is exactly `@this value` (subdomains do not match). If this is unset, sign-in fails closed. |
@@ -53,8 +56,8 @@ Open [http://localhost:3000](http://localhost:3000). You are sent to `/login` un
 | `AUTH_MICROSOFT_ENTRA_ID_ID` | No | Entra application (client) id. Leave blank to hide the Microsoft button. Callback: `{AUTH_URL}/api/auth/callback/microsoft-entra-id`. |
 | `AUTH_MICROSOFT_ENTRA_ID_SECRET` | With Microsoft | Entra client secret. |
 | `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | With Microsoft | Tenant issuer, for example `https://login.microsoftonline.com/{tenant-id}/v2.0`. Set this so personal Microsoft accounts cannot sign in. |
-| `AUTH_DEV_LOGIN` | No | `true` shows the development password form. Ignored when `NODE_ENV` is `production`. |
-| `AUTH_DEV_PASSWORD` | For dev login | Shared password that signs in an existing active user. It does not create accounts. Ignored in production. |
+| `AUTH_DEV_LOGIN` | No | `true` shows the shared password form, including in production. |
+| `AUTH_DEV_PASSWORD` | For password sign-in | Shared password that signs in an existing active user. It does not create accounts. Set on Vercel in `.env.production`. |
 | `AUTH_IDLE_TIMEOUT_MINUTES` | No | Idle timeout for non-admin roles. Default 480 (8 hours). Checked on each request. |
 | `AUTH_ADMIN_IDLE_TIMEOUT_MINUTES` | No | Idle timeout for Super Admin and HR Admin. Default 15. Checked on each request. |
 | `EMPLOYEE_DATA_KEY` | For bank and ID fields | 32-byte key, base64-encoded. Encrypts bank details and government ID numbers. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. |
@@ -64,7 +67,7 @@ Copy `.env.example` to `.env`. Do not commit `.env`.
 
 ## Development sign-in
 
-The password form is for local development only. It is disabled when `NODE_ENV` is `production`, when `AUTH_DEV_LOGIN` is not `true`, or when `AUTH_DEV_PASSWORD` is empty. It signs in a user that already exists and is active. It does not create a user.
+The password form is shown when `AUTH_DEV_LOGIN` is `true` and `AUTH_DEV_PASSWORD` is set, including on Vercel. It signs in a user that already exists and is active. It does not create a user.
 
 There is no self-signup. Google, Microsoft, and the dev form all reject the sign-in unless a matching `ACTIVE` user already exists on the company domain. The Auth.js adapter refuses to create a user during sign-in.
 
@@ -244,3 +247,13 @@ The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:300
 - Submitting leave places a hold. The reporting manager approves or rejects from the Inbox. HR can adjust or reverse a balance and can see every request.
 - Accrual and year-end carry-forward are idempotent commands: `npm run jobs:leave-accrual` and `npm run jobs:leave-carry-forward`.
 - Decision and submission emails print to the console. No new environment variables.
+
+### 2026-10-07 — Neon database
+
+- The running app uses the Neon project Avanza HRMS instead of the local cluster on port 5433.
+- `DATABASE_URL` is the pooled connection. `DATABASE_URL_UNPOOLED` is the direct connection used by Prisma migrate and seed.
+- Rows that were in the local database were copied to Neon.
+
+### 2026-10-07 — Deployed password sign-in
+
+- The shared password form stays available when `AUTH_DEV_LOGIN` is `true` and `AUTH_DEV_PASSWORD` is set, including on Vercel.

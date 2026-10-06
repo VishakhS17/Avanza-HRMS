@@ -85,10 +85,9 @@ export default async function LoginPage({
 
         {devLogin ? (
           <section className="mt-8 border-t border-border pt-6">
-            <h2 className="text-sm font-medium text-foreground">Development only</h2>
+            <h2 className="text-sm font-medium text-foreground">Password</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Password login is disabled when NODE_ENV is production. It signs in an existing active
-              user and does not create accounts.
+              Signs in an existing active user. It does not create an account.
             </p>
             <div className="mt-4">
               <DevLoginForm />

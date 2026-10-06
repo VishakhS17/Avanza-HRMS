@@ -60,7 +60,7 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 
 ## Step 3 notes
 
-- Auth.js database sessions. Google and Microsoft Entra sign-in are limited to `AUTH_ALLOWED_EMAIL_DOMAIN` and require an existing active user. The dev password form is disabled in production.
+- Auth.js database sessions. Google and Microsoft Entra sign-in are limited to `AUTH_ALLOWED_EMAIL_DOMAIN` and require an existing active user. The shared password form is shown when `AUTH_DEV_LOGIN` is true and `AUTH_DEV_PASSWORD` is set, including in production.
 - `can()` in `src/lib/permissions.ts` is used by the proxy, pages, actions, and the sidebar. Managers are scoped to direct reports once employee records exist.
 - Settings → Users and roles is Super Admin only. The audit log viewer and CSV export are Super Admin and HR Admin. The step 2 stub gate is replaced.
 - Each request checks status, expiry, and idle timeout (shorter for admin roles). This is not a scheduled job. Login, logout, failed login, role changes, and deactivation or reactivation are audited.
@@ -79,3 +79,4 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - The approver is the reporting manager, or an active HR Admin, then a Super Admin. Self-approval is rejected. A manager can decide only for a current direct report.
 - Holiday calendars and the weekly off are per location. Accrual and year-end carry-forward are idempotent CLI jobs: `npm run jobs:leave-accrual` and `npm run jobs:leave-carry-forward`.
 - Mail uses a console adapter. There is no SMTP setting.
+- The app database is the Neon project Avanza HRMS. `DATABASE_URL` is pooled. `DATABASE_URL_UNPOOLED` is the direct URL for migrate and seed. The local cluster from `npm run db:up` is not used by the app.

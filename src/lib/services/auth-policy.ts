@@ -58,9 +58,9 @@ export function evaluateSignIn(input: {
   return { ok: true };
 }
 
-/** Dev password login. Never enabled when NODE_ENV is production. */
+/** Shared password login. On when the flag is true and a password is set, including production. */
 export function isDevLoginEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return env.NODE_ENV !== "production" && env.AUTH_DEV_LOGIN === "true" && Boolean(env.AUTH_DEV_PASSWORD);
+  return env.AUTH_DEV_LOGIN === "true" && Boolean(env.AUTH_DEV_PASSWORD);
 }
 
 export function secretsMatch(left: string, right: string): boolean {

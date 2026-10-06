@@ -33,6 +33,7 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 !.env.example
+!.env.production
 
 # local Postgres cluster created by npm run db:up
 /.data/
@@ -48,3 +49,4 @@ yarn-error.log*
 next-env.d.ts
 
 /src/generated/prisma
+.neon
