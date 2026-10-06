@@ -8,7 +8,8 @@ export default defineConfig({
     seed: "tsx prisma/seed.ts",
   },
   datasource: {
-    // Migrations and seed need a direct connection. The app uses the pooled DATABASE_URL.
-    url: process.env.DATABASE_URL_UNPOOLED || process.env.DATABASE_URL,
+    // Migrations run as the owner role over a direct connection. The app and the seed use
+    // DATABASE_URL (the restricted app role), which cannot run DDL.
+    url: process.env.DIRECT_URL,
   },
 });

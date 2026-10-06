@@ -79,4 +79,12 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - The approver is the reporting manager, or an active HR Admin, then a Super Admin. Self-approval is rejected. A manager can decide only for a current direct report.
 - Holiday calendars and the weekly off are per location. Accrual and year-end carry-forward are idempotent CLI jobs: `npm run jobs:leave-accrual` and `npm run jobs:leave-carry-forward`.
 - Mail uses a console adapter. There is no SMTP setting.
-- The app database is the Neon project Avanza HRMS. `DATABASE_URL` is pooled. `DATABASE_URL_UNPOOLED` is the direct URL for migrate and seed. The local cluster from `npm run db:up` is not used by the app.
+- The app database is the Neon project Avanza HRMS. The local cluster from `npm run db:up` is not used by the app.
+
+## Database roles (fix after step 5)
+
+- The step 2 privilege check was failing. The app and tests connected as `avanza_hrms_owner`, which is in `neon_superuser` and inherits `pg_write_all_data`. That gave it `UPDATE` and `DELETE` on `audit_log` even though the table ACL did not. The trigger still blocked the statements.
+- `DATABASE_URL` is now the restricted role `avanza_hrms_app` (pooled). It has `SELECT` and `INSERT` on `audit_log`, read and write on other tables, no `TRUNCATE`, no memberships, and owns nothing. `DIRECT_URL` is the owner (direct) and is used only for migrations and `npm run db:roles`. It replaces `DATABASE_URL_UNPOOLED`.
+- Grants and default privileges are in migration `20261006201500_audit_log_app_role`. The password is set by `npm run db:roles`, not by a migration. Never create the app role in the Neon Console, because that adds it to `neon_superuser`.
+- A new append-only table must revoke `UPDATE` and `DELETE` from `avanza_hrms_app` in its own migration. Default privileges give new tables read and write.
+- `npm test` runs files one at a time. Vercel's `DATABASE_URL` must be switched to the app role.

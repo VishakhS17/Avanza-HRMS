@@ -2,7 +2,9 @@
  * Starts a project-local Postgres on 127.0.0.1:5433.
  * The system Postgres on 5432 is left alone. Data stays in .data/ (gitignored).
  *
- * The app role `avanza_app` is not a superuser, so the audit-log REVOKE holds.
+ * `avanza_hrms_owner` owns the database and runs migrations (DIRECT_URL). It is not a
+ * superuser. The app role `avanza_hrms_app` is created by the migrations and given a
+ * password by `npm run db:roles`. The old `avanza_app` role is no longer used.
  */
 import { execFileSync, spawnSync } from "node:child_process";
 import { randomBytes } from "node:crypto";
@@ -16,8 +18,9 @@ const dataDir = path.join(root, ".data", "postgres");
 const passwordFile = path.join(root, ".data", "superuser-password");
 const logFile = path.join(root, ".data", "postgres.log");
 const port = 5433;
-const appRole = "avanza_app";
-const appPassword = "avanza_app";
+const ownerRole = "avanza_hrms_owner";
+const ownerPassword = "avanza_hrms_owner";
+const legacyRole = "avanza_app";
 const database = "avanza_hrms";
 
 function binDir() {
@@ -116,33 +119,26 @@ function clientConfig(superPassword, databaseName) {
   };
 }
 
-async function ensureAppRole(superPassword) {
+async function ensureOwnerRole(superPassword) {
   const admin = new pg.Client(clientConfig(superPassword, "postgres"));
   await admin.connect();
 
   try {
-    const role = await admin.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [appRole]);
+    // CREATEROLE lets the migrations create avanza_hrms_app. CREATEDB is for Prisma's shadow database.
+    const role = await admin.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [ownerRole]);
     if (role.rowCount === 0) {
       await admin.query(
-        `CREATE ROLE ${appRole} LOGIN PASSWORD '${appPassword}' NOSUPERUSER CREATEDB NOCREATEROLE`,
+        `CREATE ROLE ${ownerRole} LOGIN PASSWORD '${ownerPassword}' NOSUPERUSER CREATEDB CREATEROLE`,
       );
     } else {
-      await admin.query(
-        `ALTER ROLE ${appRole} WITH LOGIN NOSUPERUSER CREATEDB NOCREATEROLE`,
-      );
-    }
-
-    const template = new pg.Client(clientConfig(superPassword, "template1"));
-    await template.connect();
-    try {
-      await template.query(`GRANT USAGE, CREATE ON SCHEMA public TO ${appRole}`);
-    } finally {
-      await template.end();
+      await admin.query(`ALTER ROLE ${ownerRole} WITH LOGIN NOSUPERUSER CREATEDB CREATEROLE`);
     }
 
     const existing = await admin.query("SELECT 1 FROM pg_database WHERE datname = $1", [database]);
     if (existing.rowCount === 0) {
-      await admin.query(`CREATE DATABASE ${database} OWNER ${appRole}`);
+      await admin.query(`CREATE DATABASE ${database} OWNER ${ownerRole}`);
+    } else {
+      await admin.query(`ALTER DATABASE ${database} OWNER TO ${ownerRole}`);
     }
   } finally {
     await admin.end();
@@ -151,8 +147,11 @@ async function ensureAppRole(superPassword) {
   const appDb = new pg.Client(clientConfig(superPassword, database));
   await appDb.connect();
   try {
-    await appDb.query(`GRANT USAGE, CREATE ON SCHEMA public TO ${appRole}`);
-    await appDb.query(`ALTER SCHEMA public OWNER TO ${appRole}`);
+    const legacy = await appDb.query("SELECT 1 FROM pg_roles WHERE rolname = $1", [legacyRole]);
+    if (legacy.rowCount > 0) {
+      await appDb.query(`REASSIGN OWNED BY ${legacyRole} TO ${ownerRole}`);
+    }
+    await appDb.query(`ALTER SCHEMA public OWNER TO ${ownerRole}`);
   } finally {
     await appDb.end();
   }
@@ -170,10 +169,14 @@ if (command === "down") {
   }
   console.log("Starting local Postgres...");
   startServer();
-  console.log("Ensuring the app role exists...");
-  await ensureAppRole(superPassword);
+  console.log("Ensuring the owner role exists...");
+  await ensureOwnerRole(superPassword);
   execFileSync(exe("pg_isready"), ["-h", "127.0.0.1", "-p", String(port)], { stdio: "inherit" });
-  console.log(`Local Postgres is ready on 127.0.0.1:${port}, database ${database}, role ${appRole}.`);
+  console.log(`Local Postgres is ready on 127.0.0.1:${port}, database ${database}, owner ${ownerRole}.`);
+  console.log(
+    `DIRECT_URL="postgresql://${ownerRole}:${ownerPassword}@127.0.0.1:${port}/${database}"`,
+  );
+  console.log("Next: npm run db:migrate, then npm run db:roles for the app role's DATABASE_URL.");
 } else {
   console.error("Usage: node scripts/dev-postgres.mjs up|down");
   process.exit(1);

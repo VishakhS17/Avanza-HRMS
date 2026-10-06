@@ -21,9 +21,10 @@ Sign-in and every signed-in page need the database. The login page can render be
 
 ```bash
 npm install
-cp .env.example .env
-npm run db:up
-npm run db:migrate
+cp .env.example .env    # set DIRECT_URL to the owner role (see Database roles)
+npm run db:migrate      # runs as the owner. Creates avanza_hrms_app and its grants
+npm run db:roles        # turns on login for avanza_hrms_app and prints DATABASE_URL
+                        # paste that DATABASE_URL into .env
 npm run db:seed
 npm run dev
 ```
@@ -36,16 +37,64 @@ Open [http://localhost:3000](http://localhost:3000). You are sent to `/login` un
 
 `npm install` runs `prisma generate`.
 
-The app reads `DATABASE_URL`, the Neon pooled connection string. Prisma migrate and seed read `DATABASE_URL_UNPOOLED`, the direct string for the same database (hostname without `-pooler`). Both belong in `.env`. Do not commit that file.
+The app, the jobs, the seed, and the tests read `DATABASE_URL`, which connects as the restricted role `avanza_hrms_app` over the Neon pooler. Prisma migrate reads `DIRECT_URL`, which connects as the owner role `avanza_hrms_owner` on the direct host (no `-pooler`). Both belong in `.env`. Do not commit that file.
 
-`npm run db:up` still starts a separate Postgres cluster on `127.0.0.1:5433`. The app does not use it. Data for that cluster lives in `.data/`, which is gitignored. `npm run db:down` stops it. If `initdb` is not on the default PostgreSQL 18 path, set `POSTGRES_BIN` to that `bin` directory before `npm run db:up`.
+`npm run db:up` starts an optional local Postgres cluster on `127.0.0.1:5433`. The app uses Neon, not this cluster. Data for that cluster lives in `.data/`, which is gitignored. `npm run db:down` stops it. If `initdb` is not on the default PostgreSQL 18 path, set `POSTGRES_BIN` to that `bin` directory before `npm run db:up`.
+
+## Database roles
+
+Two roles, one per job:
+
+| Role | Env var | Used by | Can do |
+| --- | --- | --- | --- |
+| `avanza_hrms_owner` | `DIRECT_URL` | `npm run db:migrate`, `npm run db:roles` | Owns every table. Runs DDL. |
+| `avanza_hrms_app` | `DATABASE_URL` | The Next.js app, jobs, seed, `npm test` | Read and write normal tables. `SELECT` and `INSERT` only on `audit_log`. No `TRUNCATE` anywhere. No access to `_prisma_migrations`. |
+
+The app must never use the owner. On Neon the owner is in `neon_superuser`, which inherits `pg_write_all_data`. That role can `UPDATE` and `DELETE` every table, `audit_log` included, whatever the table grants say. The audit test fails unless `DATABASE_URL` connects as `avanza_hrms_app`.
+
+Migration `20261006201500_audit_log_app_role` creates `avanza_hrms_app` without login and sets its grants. It also sets default privileges, so tables created by later migrations get read and write for the app role. A later append-only table must revoke `UPDATE` and `DELETE` from `avanza_hrms_app` in its own migration. Run migrations as `avanza_hrms_owner` so those default privileges apply.
+
+`npm run db:roles` connects with `DIRECT_URL`. The first time, it turns on login and sets a random password for `avanza_hrms_app`. It then prints the `DATABASE_URL` to use, with the pooled host on Neon. It always checks that the app role is not elevated, is not a member of any role, owns nothing, and has exactly `SELECT` and `INSERT` on `audit_log`. If any check fails it exits with status 1. Running it again leaves the password alone. Run `npm run db:roles -- --rotate` to set a new one.
+
+### On Neon
+
+1. Use the database owner `avanza_hrms_owner` from the Console for `DIRECT_URL` (Connection details, pooling off).
+2. Run `npm run db:migrate`, then `npm run db:roles`. Put the printed value in `.env` as `DATABASE_URL`, and in Vercel → Settings → Environment Variables. Then redeploy.
+3. Do not create or edit `avanza_hrms_app` in the Neon Console, CLI, or API. Neon adds roles created there to `neon_superuser`, and that defeats the restriction. Create and change it only with SQL, which is what the migration and `npm run db:roles` do.
+
+To set the password by hand instead of with the script, run this in the Neon SQL Editor as `avanza_hrms_owner` after migrating:
+
+```sql
+ALTER ROLE avanza_hrms_app WITH LOGIN PASSWORD 'a-long-random-password';
+
+-- Expect: no rows, then t t f f f
+SELECT r.rolname FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid
+WHERE m.member = 'avanza_hrms_app'::regrole;
+SELECT has_table_privilege('avanza_hrms_app', 'audit_log', 'SELECT'),
+       has_table_privilege('avanza_hrms_app', 'audit_log', 'INSERT'),
+       has_table_privilege('avanza_hrms_app', 'audit_log', 'UPDATE'),
+       has_table_privilege('avanza_hrms_app', 'audit_log', 'DELETE'),
+       has_table_privilege('avanza_hrms_app', 'audit_log', 'TRUNCATE');
+```
+
+### Locally
+
+`npm run db:up` creates the owner role `avanza_hrms_owner` (password `avanza_hrms_owner`, `NOSUPERUSER CREATEDB CREATEROLE`). It makes that role the owner of the `avanza_hrms` database and prints its `DIRECT_URL`. The older `avanza_app` role is not used. Its objects are reassigned to the owner. Then:
+
+```bash
+npm run db:up
+# DIRECT_URL="postgresql://avanza_hrms_owner:avanza_hrms_owner@127.0.0.1:5433/avanza_hrms"
+npm run db:migrate
+npm run db:roles
+# DATABASE_URL="postgresql://avanza_hrms_app:<printed>@127.0.0.1:5433/avanza_hrms"
+```
 
 ## Environment variables
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Yes | Neon pooled connection string. The Next.js app uses this. The role must not be a superuser, because superusers ignore `GRANT` and `REVOKE`. |
-| `DATABASE_URL_UNPOOLED` | Yes | Direct Neon connection string for Prisma migrate and seed. Same database as `DATABASE_URL`, without the `-pooler` host. |
+| `DATABASE_URL` | Yes | Pooled connection as `avanza_hrms_app`. Used by the app, jobs, seed, and tests. Printed by `npm run db:roles`. Never the owner role. |
+| `DIRECT_URL` | For migrations | Direct connection (no `-pooler`) as the owner `avanza_hrms_owner`. Used only by Prisma migrate and `npm run db:roles`. Not needed on Vercel. Replaces `DATABASE_URL_UNPOOLED`. |
 | `AUTH_SECRET` | Yes | Auth.js secret. Generate one with `npx auth secret`. |
 | `AUTH_URL` | No | Public app URL. Defaults to `http://localhost:3000`. Use `https://` in production so the session cookie is marked Secure. |
 | `AUTH_ALLOWED_EMAIL_DOMAIN` | Yes | Company email domain. Sign-in is rejected unless the address is exactly `@this value` (subdomains do not match). If this is unset, sign-in fails closed. |
@@ -96,14 +145,15 @@ Microsoft Entra ID:
 | `npm run start` | Run the production server |
 | `npm run lint` | Run ESLint |
 | `npm run db:generate` | Generate the Prisma client |
-| `npm run db:up` | Start the local Postgres cluster and ensure `avanza_app` exists |
+| `npm run db:up` | Start the local Postgres cluster and ensure the owner role `avanza_hrms_owner` exists |
 | `npm run db:down` | Stop the local Postgres cluster |
-| `npm run db:migrate` | Create and apply a dev migration |
+| `npm run db:migrate` | Create and apply a dev migration (as the owner, via `DIRECT_URL`) |
+| `npm run db:roles` | Turn on login for `avanza_hrms_app`, print its `DATABASE_URL`, and check its `audit_log` privileges. `-- --rotate` sets a new password. |
 | `npm run db:seed` | Create the bootstrap Super Admin if that email is missing, and insert leave types if they are missing |
 | `npm run db:studio` | Open Prisma Studio |
 | `npm run jobs:leave-accrual` | Credit monthly and annual leave for the current Asia/Kolkata month or year. Running it again does not double-credit. |
 | `npm run jobs:leave-carry-forward` | Forfeit leave above each type's carry cap for a completed calendar year. In January it uses the previous year. In other months pass `--year YYYY`. Running it again does not forfeit twice. |
-| `npm test` | Run permission, sign-in, session, user-admin, audit log, employee scoping, and leave tests |
+| `npm test` | Run permission, sign-in, session, user-admin, audit log, employee scoping, and leave tests, one file at a time, as the app role |
 
 Idle timeout and user status are checked on each request, not by a job. The two leave commands are the scheduled jobs. Run them from cron or Task Scheduler. They are not started by `npm run dev`. System jobs pass `actor: null` on the audit row. Mail is printed to the server console. There is no SMTP variable.
 
@@ -138,6 +188,7 @@ prisma/seed.ts          Bootstrap Super Admin and leave types
 prisma/migrations/      SQL migrations, including the append-only grants
 prisma7.config.ts       Prisma 7 config
 scripts/dev-postgres.mjs  Local Postgres start/stop
+scripts/db-roles.mjs    App role login, password, and privilege check
 docs/PROGRESS.md        Build checklist
 ```
 
@@ -204,7 +255,7 @@ await db.$transaction(async (tx) => {
 });
 ```
 
-Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. Leave and holidays write `LEAVE_REQUESTED`, `LEAVE_APPROVED`, `LEAVE_REJECTED`, `LEAVE_CANCELLED`, `LEAVE_BALANCE_ADJUSTED`, `LEAVE_ACCRUED`, `LEAVE_CARRY_FORWARD`, `LEAVE_REVERSED`, `HOLIDAY_CREATED`, and `HOLIDAY_UPDATED`. There is no update or delete helper. The migration revokes `UPDATE`, `DELETE`, and `TRUNCATE` from the app role, and a trigger rejects update and delete statements.
+Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. Leave and holidays write `LEAVE_REQUESTED`, `LEAVE_APPROVED`, `LEAVE_REJECTED`, `LEAVE_CANCELLED`, `LEAVE_BALANCE_ADJUSTED`, `LEAVE_ACCRUED`, `LEAVE_CARRY_FORWARD`, `LEAVE_REVERSED`, `HOLIDAY_CREATED`, and `HOLIDAY_UPDATED`. There is no update or delete helper. The app role `avanza_hrms_app` has only `SELECT` and `INSERT` on `audit_log`. `UPDATE`, `DELETE`, and `TRUNCATE` are revoked from it and from `PUBLIC`. A trigger also rejects update and delete for any role, the owner included. See Database roles.
 
 The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:3000/settings/audit-log). Filter by date (IST calendar days), actor, action, and entity. Results are paged at 25 rows. CSV export downloads the current filter, up to 5,000 rows. HR Admin and Super Admin can open it. Other roles cannot, including by calling the export URL directly.
 
@@ -257,3 +308,12 @@ The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:300
 ### 2026-10-07 — Deployed password sign-in
 
 - The shared password form stays available when `AUTH_DEV_LOGIN` is `true` and `AUTH_DEV_PASSWORD` is set, including on Vercel.
+
+### 2026-10-07 — Restricted app database role
+
+- Fixed the audit log privilege check. The app and tests had connected as the Neon owner, which inherits `pg_write_all_data` through `neon_superuser` and could `UPDATE` and `DELETE` `audit_log`.
+- New migration `20261006201500_audit_log_app_role` creates `avanza_hrms_app` with `SELECT` and `INSERT` only on `audit_log`, read and write elsewhere, and matching default privileges. The original audit migration is unchanged.
+- `DATABASE_URL` now connects as `avanza_hrms_app`. `DIRECT_URL` (owner, direct host) replaces `DATABASE_URL_UNPOOLED` and is used only by Prisma migrate and `npm run db:roles`.
+- Added `npm run db:roles`. `npm run db:up` now creates the local owner role `avanza_hrms_owner` instead of `avanza_app`.
+- `npm test` runs files one at a time, so one file's test HR Admin cannot become another file's approver. The audit test also checks `TRUNCATE`, and checks that it runs as `avanza_hrms_app`, which owns nothing and is not a member of the owner.
+- On Vercel, set `DATABASE_URL` to the `avanza_hrms_app` URL and redeploy. No new scheduled jobs.

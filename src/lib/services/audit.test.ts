@@ -136,33 +136,53 @@ describe("audit.log", () => {
 
     const privileges = await getDb().$queryRaw<
       Array<{
+        role: string;
         rolsuper: boolean;
+        owner: string;
+        member_of_owner: boolean;
         can_select: boolean;
         can_insert: boolean;
         can_update: boolean;
         can_delete: boolean;
+        can_truncate: boolean;
       }>
     >`
       SELECT
-        rolsuper,
+        current_user::text AS role,
+        r.rolsuper,
+        pg_get_userbyid(c.relowner)::text AS owner,
+        pg_has_role(current_user, c.relowner, 'MEMBER') AS member_of_owner,
         has_table_privilege(current_user, 'audit_log', 'SELECT') AS can_select,
         has_table_privilege(current_user, 'audit_log', 'INSERT') AS can_insert,
         has_table_privilege(current_user, 'audit_log', 'UPDATE') AS can_update,
-        has_table_privilege(current_user, 'audit_log', 'DELETE') AS can_delete
-      FROM pg_roles
-      WHERE rolname = current_user
+        has_table_privilege(current_user, 'audit_log', 'DELETE') AS can_delete,
+        has_table_privilege(current_user, 'audit_log', 'TRUNCATE') AS can_truncate
+      FROM pg_roles r, pg_class c
+      WHERE r.rolname = current_user AND c.oid = 'audit_log'::regclass
     `;
+    assert.equal(privileges[0]?.role, "avanza_hrms_app", "DATABASE_URL must connect as the app role");
     assert.equal(privileges[0]?.rolsuper, false);
+    assert.notEqual(privileges[0]?.owner, privileges[0]?.role);
+    assert.equal(privileges[0]?.member_of_owner, false);
     assert.equal(privileges[0]?.can_select, true);
     assert.equal(privileges[0]?.can_insert, true);
     assert.equal(privileges[0]?.can_update, false);
     assert.equal(privileges[0]?.can_delete, false);
+    assert.equal(privileges[0]?.can_truncate, false);
 
     await assert.rejects(() =>
       getDb().$executeRaw`UPDATE audit_log SET reason = 'tampered' WHERE id = ${row.id}`,
     );
     await assert.rejects(() =>
       getDb().$executeRaw`DELETE FROM audit_log WHERE id = ${row.id}`,
+    );
+    await assert.rejects(
+      () =>
+        getDb().$transaction(async (tx) => {
+          await tx.$executeRaw`TRUNCATE audit_log`;
+          throw new Error("TRUNCATE was allowed");
+        }),
+      /permission denied/,
     );
 
     const stored = await getDb().auditLog.findUniqueOrThrow({ where: { id: row.id } });
