@@ -14,16 +14,17 @@ import {
 
 type AppShellProps = {
   user: Principal;
+  inboxCount?: number;
   children: ReactNode;
 };
 
-export function AppShell({ user, children }: AppShellProps) {
+export function AppShell({ user, inboxCount = 0, children }: AppShellProps) {
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   return (
     <div className="flex h-dvh bg-background">
       <aside className="hidden w-64 shrink-0 border-r border-sidebar-border md:flex md:flex-col">
-        <SidebarNav user={user} />
+        <SidebarNav user={user} inboxCount={inboxCount} />
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
         <TopBar user={user} onMenuClick={() => setMobileNavOpen(true)} />
@@ -40,7 +41,7 @@ export function AppShell({ user, children }: AppShellProps) {
             <SheetTitle>Avanza Logistics</SheetTitle>
             <SheetDescription>Main navigation</SheetDescription>
           </SheetHeader>
-          <SidebarNav user={user} onNavigate={() => setMobileNavOpen(false)} />
+          <SidebarNav user={user} inboxCount={inboxCount} onNavigate={() => setMobileNavOpen(false)} />
         </SheetContent>
       </Sheet>
     </div>

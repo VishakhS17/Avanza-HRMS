@@ -35,6 +35,17 @@ export default async function SettingsPage() {
           </section>
         ) : null}
         <section className="rounded-xl border border-border bg-card p-5">
+          <h2 className="text-base font-medium text-foreground">Holiday calendar</h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Holidays and the weekly off for each location. Leave uses these when it counts working days.
+          </p>
+          <div className="mt-4">
+            <Button variant="secondary" asChild>
+              <Link href="/settings/holidays">Manage holidays</Link>
+            </Button>
+          </div>
+        </section>
+        <section className="rounded-xl border border-border bg-card p-5">
           <h2 className="text-base font-medium text-foreground">Organization</h2>
           <p className="mt-1 text-sm text-muted-foreground">
             Departments, designations, and locations. Inactive rows stay on job history.

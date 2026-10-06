@@ -96,11 +96,13 @@ Microsoft Entra ID:
 | `npm run db:up` | Start the local Postgres cluster and ensure `avanza_app` exists |
 | `npm run db:down` | Stop the local Postgres cluster |
 | `npm run db:migrate` | Create and apply a dev migration |
-| `npm run db:seed` | Create the bootstrap Super Admin if that email is missing |
+| `npm run db:seed` | Create the bootstrap Super Admin if that email is missing, and insert leave types if they are missing |
 | `npm run db:studio` | Open Prisma Studio |
-| `npm test` | Run permission, sign-in, session, user-admin, audit log, and employee scoping tests |
+| `npm run jobs:leave-accrual` | Credit monthly and annual leave for the current Asia/Kolkata month or year. Running it again does not double-credit. |
+| `npm run jobs:leave-carry-forward` | Forfeit leave above each type's carry cap for a completed calendar year. In January it uses the previous year. In other months pass `--year YYYY`. Running it again does not forfeit twice. |
+| `npm test` | Run permission, sign-in, session, user-admin, audit log, employee scoping, and leave tests |
 
-There are no scheduled jobs. Idle timeout and user status are checked on each request. System jobs can pass `actor: null` when they write an audit row.
+Idle timeout and user status are checked on each request, not by a job. The two leave commands are the scheduled jobs. Run them from cron or Task Scheduler. They are not started by `npm run dev`. System jobs pass `actor: null` on the audit row. Mail is printed to the server console. There is no SMTP variable.
 
 ## Project structure
 
@@ -111,19 +113,25 @@ src/app/api/auth/       Auth.js route handler
 src/app/(app)/          Signed-in routes and the app-shell layout
 src/app/(app)/people/      HR employee list, create, and detail
 src/app/(app)/directory/   Company directory
-src/app/(app)/my-team/     Direct reports
+src/app/(app)/my-team/     Direct reports and the team leave calendar
+src/app/(app)/inbox/       Pending approvals and notifications
+src/app/(app)/my-space/leave/  Balances, apply, and history
+src/app/(app)/leave/       HR leave requests, adjustments, and reversals
 src/app/(app)/settings/users/   Super Admin user and role management
 src/app/(app)/settings/organization/  Departments, designations, locations
+src/app/(app)/settings/holidays/  Holiday calendars and weekly off
 src/app/(app)/settings/audit-log/  Audit log viewer and CSV export
 src/app/api/employees/[id]/  Employee JSON. Same scope as the pages.
+scripts/leave-accrual.ts  Monthly and annual accrual job
+scripts/leave-carry-forward.ts  Year-end carry-forward job
 src/components/layout/  Sidebar, top bar, shell
 src/components/shared/  PageHeader, DataTable, StatusBadge, EmptyState, ConfirmDialog, FormField
 src/components/ui/      shadcn/ui primitives
 src/lib/auth.ts         Auth.js config
 src/lib/permissions.ts  Permission map and can()
 src/lib/services/       Business logic, including audit, sessions, and users
-prisma/schema.prisma    User, Account, Session, AuditLog, Employee, Employment, and organization masters
-prisma/seed.ts          Bootstrap Super Admin
+prisma/schema.prisma    Users, employees, leave, holidays, and approvals
+prisma/seed.ts          Bootstrap Super Admin and leave types
 prisma/migrations/      SQL migrations, including the append-only grants
 prisma7.config.ts       Prisma 7 config
 scripts/dev-postgres.mjs  Local Postgres start/stop
@@ -148,6 +156,9 @@ Every user is an Employee. Roles are stored on the user and always include `EMPL
 | Settings → Organization | HR Admin, Super Admin |
 | Settings → Audit log | HR Admin, Super Admin |
 | Settings → Users and roles | Super Admin |
+| Settings → Holiday calendar | HR Admin, Super Admin |
+| Leave requests, balance adjustments, and reversals | HR Admin, Super Admin |
+| Team leave calendar | Manager, HR Admin, Super Admin (direct reports) |
 | Reveal bank details and ID numbers | HR Admin |
 
 A role that fails a page check is redirected to `/forbidden`. `/settings/audit-log/export` and `/api/*` return JSON `403`.
@@ -158,7 +169,9 @@ A Super Admin cannot change their own roles or status. The last active Super Adm
 
 HR Admin and Super Admin can create an employee. That also creates the matching user with the Employee role, using the work email as the sign-in address. The employee can edit their own phone, address, and emergency contact. Job fields, name, and work email stay with HR. A manager can open only their own record and current direct reports, including by URL and `GET /api/employees/{id}`. Bank details, PAN, and government ID numbers are encrypted with `EMPLOYEE_DATA_KEY`, masked on screen, and revealed only by HR Admin. A reveal writes an audit row and does not store the value.
 
-No one will approve their own requests. Approval flows are a later step.
+Leave balance is the sum of ledger rows, not a stored number. Applying places a hold. Approval releases the hold and posts a deduction. The employee can cancel a pending request before the start date. After the start date, or after approval, cancellation needs an approver. The approver is the current reporting manager when that person is active. Otherwise it is the earliest active HR Admin, then the earliest active Super Admin. Nobody can approve their own request. A manager can decide only when they are the assigned approver and still manage that person. HR can decide a request assigned to them, and can decide when the assigned manager is inactive or no longer the manager. Rejection needs a comment.
+
+Casual leave accrues 1 day a month and does not carry forward. Sick leave accrues 6 days a year. Earned leave accrues 1.5 days a month and carries forward up to 12 days. Unpaid leave does not track a balance. Casual and Earned are not available during the first 6 months. Re-running the seed does not change an existing policy.
 
 ## Rules
 
@@ -188,7 +201,7 @@ await db.$transaction(async (tx) => {
 });
 ```
 
-Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. There is no update or delete helper. The migration revokes `UPDATE`, `DELETE`, and `TRUNCATE` from the app role, and a trigger rejects update and delete statements.
+Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. Leave and holidays write `LEAVE_REQUESTED`, `LEAVE_APPROVED`, `LEAVE_REJECTED`, `LEAVE_CANCELLED`, `LEAVE_BALANCE_ADJUSTED`, `LEAVE_ACCRUED`, `LEAVE_CARRY_FORWARD`, `LEAVE_REVERSED`, `HOLIDAY_CREATED`, and `HOLIDAY_UPDATED`. There is no update or delete helper. The migration revokes `UPDATE`, `DELETE`, and `TRUNCATE` from the app role, and a trigger rejects update and delete statements.
 
 The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:3000/settings/audit-log). Filter by date (IST calendar days), actor, action, and entity. Results are paged at 25 rows. CSV export downloads the current filter, up to 5,000 rows. HR Admin and Super Admin can open it. Other roles cannot, including by calling the export URL directly.
 
@@ -224,3 +237,10 @@ The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:300
 - The directory lists people who are active or on notice. Managers see only current direct reports.
 - Bank details and government ID numbers are encrypted with `EMPLOYEE_DATA_KEY` and masked. HR Admin reveals are audited.
 - No hard delete, and no new scheduled jobs.
+
+### 2026-10-07 — Leave, holidays, and approvals
+
+- Added leave types, a ledger-derived balance, leave requests, a per-location holiday calendar, and a shared approval inbox.
+- Submitting leave places a hold. The reporting manager approves or rejects from the Inbox. HR can adjust or reverse a balance and can see every request.
+- Accrual and year-end carry-forward are idempotent commands: `npm run jobs:leave-accrual` and `npm run jobs:leave-carry-forward`.
+- Decision and submission emails print to the console. No new environment variables.

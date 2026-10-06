@@ -39,11 +39,11 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - [x] 2. Audit log
 - [x] 3. Authentication, roles, and server-side permission checks
 - [x] 4. Employee records (status / soft delete, no hard deletes)
-- [ ] 5. Directory and People (HR)
+- [x] 5. Leave, holidays, approvals, and inbox
 - [ ] 6. My Space: profile and documents
-- [ ] 7. Attendance and holidays
-- [ ] 8. Leave, approvals (no self-approval), inbox, and my team
-- [ ] 9. Reports and settings
+- [ ] 7. Attendance
+- [ ] 8. Reports
+- [ ] 9. Settings
 
 ## Step 1 notes
 
@@ -71,3 +71,11 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - `Employee` shares its id with `User`. Job data is on `Employment`. One open row per employee uses `openKey` (the employee id while current, null once closed).
 - HR people screens, the directory, My Profile contact edits, My Team direct reports, and organization settings are included here.
 - Bank details and government IDs are encrypted with `EMPLOYEE_DATA_KEY`. Reveals are HR Admin only and audited. No hard deletes and no scheduled jobs.
+- Directory and People shipped in this step. The following prompt took the leave work that had been listed later in the checklist.
+
+## Step 5 notes
+
+- Leave balance is the sum of `LeaveLedger` rows. Submit places a hold. Approval releases the hold and posts a deduction.
+- The approver is the reporting manager, or an active HR Admin, then a Super Admin. Self-approval is rejected. A manager can decide only for a current direct report.
+- Holiday calendars and the weekly off are per location. Accrual and year-end carry-forward are idempotent CLI jobs: `npm run jobs:leave-accrual` and `npm run jobs:leave-carry-forward`.
+- Mail uses a console adapter. There is no SMTP setting.

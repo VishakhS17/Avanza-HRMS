@@ -115,6 +115,13 @@ export const navSections: NavSection[] = [
         icon: Contact,
         action: "people.view",
       },
+      {
+        title: "Leave",
+        href: "/leave",
+        description: "All leave requests and balance changes.",
+        icon: CalendarOff,
+        action: "leave.manage",
+      },
     ],
   },
   {

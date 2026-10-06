@@ -48,6 +48,10 @@ describe("can", () => {
     assert.equal(can(hr, "settings.view"), true);
     assert.equal(can(hr, "audit.view"), true);
     assert.equal(can(hr, "users.manage"), false);
+    assert.equal(can(hr, "leave.manage"), true);
+    assert.equal(can(employee, "leave.manage"), false);
+    assert.equal(can(manager, "leave.manage"), false);
+    assert.equal(can(admin, "leave.manage"), true);
     assert.equal(can(hr, "employee.sensitive.view"), true);
     assert.equal(can(admin, "employee.sensitive.view"), false);
     assert.equal(can(manager, "employee.sensitive.view"), false);
@@ -91,7 +95,11 @@ describe("route guards", () => {
     assert.equal(guardForPath("/settings/users"), "users.manage");
     assert.equal(guardForPath("/settings/audit-log"), "audit.view");
     assert.equal(guardForPath("/settings/audit-log/export"), "audit.view");
+    assert.equal(guardForPath("/leave"), "leave.manage");
+    assert.equal(guardForPath("/my-space/leave"), null);
     assert.equal(guardForPath("/"), null);
+    assert.equal(can(employee, guardForPath("/leave") ?? "app.view"), false);
+    assert.equal(can(hr, guardForPath("/leave") ?? "app.view"), true);
     assert.equal(can(employee, guardForPath("/settings") ?? "app.view"), false);
     assert.equal(can(employee, guardForPath("/settings/audit-log") ?? "app.view"), false);
     assert.equal(can(hr, guardForPath("/settings/users") ?? "app.view"), false);

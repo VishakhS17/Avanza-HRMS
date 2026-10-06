@@ -43,6 +43,9 @@ model User {
   accounts        Account[]
   sessions        Session[]
   employee        Employee?
+  approvalRequestsMade ApprovalRequest[] @relation("ApprovalRequester")
+  approvalRequestsToReview ApprovalRequest[] @relation("ApprovalApprover")
+  notifications   Notification[]
 
   @@index([status])
   @@map("users")
@@ -149,9 +152,12 @@ model Location {
   name        String       @unique
   city        String?
   isActive    Boolean      @default(true)
+  /// Days that are not working days for this location. Saturday and Sunday by default.
+  weeklyOff   Weekday[]    @default([SATURDAY, SUNDAY])
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
   employments Employment[]
+  holidays    Holiday[]
 
   @@map("locations")
 }
@@ -191,6 +197,8 @@ model Employee {
   user              User           @relation(fields: [id], references: [id])
   employments       Employment[]
   managedEmployments Employment[]  @relation("ReportingManager")
+  leaveRequests     LeaveRequest[]
+  leaveLedgerEntries LeaveLedger[]
 
   @@index([status])
   @@map("employees")
@@ -221,4 +229,197 @@ model Employment {
   @@index([departmentId])
   @@index([locationId])
   @@map("employments")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum LeaveRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+  CANCELLATION_PENDING
+}
+
+enum AccrualMode {
+  MONTHLY
+  ANNUAL
+  MANUAL
+}
+
+enum LedgerEntryType {
+  ACCRUAL
+  DEDUCTION
+  HOLD
+  RELEASE
+  CARRY_FORWARD
+  ADJUSTMENT
+  REVERSAL
+}
+
+enum HalfDaySession {
+  FIRST
+  SECOND
+}
+
+enum Weekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
+/// Generic approval row. Leave uses it now. Later features can add a type without a new table.
+model ApprovalRequest {
+  id          String         @id @default(cuid())
+  type        String
+  targetType  String
+  targetId    String
+  requesterId String
+  approverId  String
+  status      ApprovalStatus @default(PENDING)
+  comment     String?
+  createdAt   DateTime       @default(now())
+  decidedAt   DateTime?
+  requester   User           @relation("ApprovalRequester", fields: [requesterId], references: [id])
+  approver    User           @relation("ApprovalApprover", fields: [approverId], references: [id])
+
+  @@index([approverId, status])
+  @@index([requesterId, status])
+  @@index([targetType, targetId])
+  @@map("approval_requests")
+}
+
+/// Inbox notice. Marking it read is not an audited business change.
+model Notification {
+  id        String    @id @default(cuid())
+  userId    String
+  title     String
+  body      String
+  href      String?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([userId, readAt])
+  @@map("notifications")
+}
+
+model LeaveType {
+  id         String         @id @default(cuid())
+  code       String         @unique
+  name       String
+  isPaid     Boolean
+  isActive   Boolean        @default(true)
+  sortOrder  Int
+  createdAt  DateTime       @default(now())
+  updatedAt  DateTime       @updatedAt
+  policy     LeavePolicy?
+  requests   LeaveRequest[]
+  ledger     LeaveLedger[]
+
+  @@map("leave_types")
+}
+
+/// One current policy per leave type. Balance rules live here, not on a stored balance column.
+model LeavePolicy {
+  id                 String      @id @default(cuid())
+  leaveTypeId        String      @unique
+  accrualMode        AccrualMode
+  accrualDays        Decimal     @db.Decimal(6, 2)
+  carryForwardCap    Decimal     @db.Decimal(6, 2)
+  halfDayAllowed     Boolean
+  excludeWeekends    Boolean
+  excludeHolidays    Boolean
+  probationEligible  Boolean
+  probationMonths    Int         @default(6)
+  /// When false, requests do not need a positive balance. Used for unpaid leave.
+  balanceEnforced    Boolean
+  leaveType          LeaveType   @relation(fields: [leaveTypeId], references: [id])
+
+  @@map("leave_policies")
+}
+
+/// Signed day movements. The balance is the sum of `days` for an employee and leave type.
+model LeaveLedger {
+  id             String          @id @default(cuid())
+  employeeId     String
+  leaveTypeId    String
+  entryType      LedgerEntryType
+  days           Decimal         @db.Decimal(6, 2)
+  leaveRequestId String?
+  reversesId     String?         @unique
+  /// Set for accrual and carry-forward so a job can run twice without double-posting.
+  idempotencyKey String?         @unique
+  reason         String?
+  createdById    String?
+  createdAt      DateTime        @default(now())
+  employee       Employee        @relation(fields: [employeeId], references: [id])
+  leaveType      LeaveType       @relation(fields: [leaveTypeId], references: [id])
+  leaveRequest   LeaveRequest?   @relation(fields: [leaveRequestId], references: [id])
+  reverses       LeaveLedger?    @relation("LedgerReversal", fields: [reversesId], references: [id])
+  reversedBy     LeaveLedger?    @relation("LedgerReversal")
+
+  @@index([employeeId, leaveTypeId])
+  @@index([leaveRequestId])
+  @@map("leave_ledger")
+}
+
+model LeaveRequest {
+  id          String             @id @default(cuid())
+  employeeId  String
+  leaveTypeId String
+  startDate   DateTime           @db.Date
+  endDate     DateTime           @db.Date
+  session     HalfDaySession?
+  reason      String
+  status      LeaveRequestStatus @default(PENDING)
+  workingDays Decimal            @db.Decimal(6, 2)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  employee    Employee           @relation(fields: [employeeId], references: [id])
+  leaveType   LeaveType          @relation(fields: [leaveTypeId], references: [id])
+  days        LeaveRequestDay[]
+  ledger      LeaveLedger[]
+
+  @@index([employeeId, status])
+  @@index([status, startDate])
+  @@map("leave_requests")
+}
+
+model LeaveRequestDay {
+  id             String          @id @default(cuid())
+  leaveRequestId String
+  employeeId     String
+  date           DateTime        @db.Date
+  portion        Decimal         @db.Decimal(6, 2)
+  session        HalfDaySession?
+  leaveRequest   LeaveRequest    @relation(fields: [leaveRequestId], references: [id])
+
+  @@unique([leaveRequestId, date])
+  @@index([employeeId, date])
+  @@map("leave_request_days")
+}
+
+model Holiday {
+  id         String   @id @default(cuid())
+  locationId String
+  date       DateTime @db.Date
+  name       String
+  isActive   Boolean  @default(true)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  location   Location @relation(fields: [locationId], references: [id])
+
+  @@unique([locationId, date])
+  @@index([locationId, isActive])
+  @@map("holidays")
 }

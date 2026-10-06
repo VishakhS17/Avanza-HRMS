@@ -8,10 +8,11 @@ import { isNavItemVisible, navSections } from "@/lib/navigation";
 
 type SidebarNavProps = {
   user: Principal;
+  inboxCount?: number;
   onNavigate?: () => void;
 };
 
-export function SidebarNav({ user, onNavigate }: SidebarNavProps) {
+export function SidebarNav({ user, inboxCount = 0, onNavigate }: SidebarNavProps) {
   const pathname = usePathname();
 
   return (
@@ -61,7 +62,19 @@ export function SidebarNav({ user, onNavigate }: SidebarNavProps) {
                         )}
                       >
                         <Icon className="size-4 shrink-0" aria-hidden="true" />
-                        {item.title}
+                        <span className="min-w-0 flex-1">{item.title}</span>
+                        {item.href === "/inbox" && inboxCount > 0 ? (
+                          <span
+                            className={cn(
+                              "inline-flex min-w-5 items-center justify-center rounded-full px-1.5 text-xs",
+                              active
+                                ? "bg-primary-foreground text-primary"
+                                : "bg-primary text-primary-foreground",
+                            )}
+                          >
+                            {inboxCount > 99 ? "99+" : inboxCount}
+                          </span>
+                        ) : null}
                       </Link>
                     </li>
                   );

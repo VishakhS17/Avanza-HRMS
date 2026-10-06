@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
+import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/shared/status-badge";
 import { employeeStatusLabel, employeeStatusTone } from "@/lib/employee-labels";
 import { requireCan } from "@/lib/services/current-user";
@@ -17,7 +18,15 @@ export default async function MyTeamPage() {
 
   return (
     <div className="flex flex-col gap-6">
-      <PageHeader title="My Team" description="People who report to you right now." />
+      <PageHeader
+        title="My Team"
+        description="People who report to you right now."
+        actions={
+          <Button variant="secondary" asChild>
+            <Link href="/my-team/leave">Team leave calendar</Link>
+          </Button>
+        }
+      />
       {reports.length === 0 ? (
         <EmptyState title="No direct reports" description="When someone reports to you, they show up here." />
       ) : (

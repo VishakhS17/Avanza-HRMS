@@ -22,6 +22,7 @@ export const ACTIONS = [
   "users.manage",
   "employee.view",
   "employee.sensitive.view",
+  "leave.manage",
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
@@ -66,6 +67,7 @@ export const PERMISSIONS: Record<Action, PermissionRule> = {
     scope: "direct-reports",
   },
   "employee.sensitive.view": { roles: ["HR_ADMIN"] },
+  "leave.manage": { roles: ["HR_ADMIN", "SUPER_ADMIN"] },
 };
 
 /** Longer prefixes first so `/settings/users` does not match `/settings` only. */
@@ -74,6 +76,7 @@ export const ROUTE_GUARDS: readonly { prefix: string; action: Action }[] = [
   { prefix: "/settings/audit-log", action: "audit.view" },
   { prefix: "/settings", action: "settings.view" },
   { prefix: "/people", action: "people.view" },
+  { prefix: "/leave", action: "leave.manage" },
   { prefix: "/my-team", action: "team.view" },
   { prefix: "/reports", action: "reports.view" },
 ];
