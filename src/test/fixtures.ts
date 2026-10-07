@@ -56,6 +56,8 @@ export class TestData {
 
     if (users.length > 0) {
       await deleteProtectedRows(users);
+      await db.attendanceRecord.deleteMany({ where: { employeeId: { in: users } } });
+      await db.attendanceRegularization.deleteMany({ where: { employeeId: { in: users } } });
       await db.leaveLedger.deleteMany({ where: { employeeId: { in: users }, reversesId: { not: null } } });
       await db.leaveLedger.deleteMany({ where: { employeeId: { in: users } } });
       await db.leaveRequestDay.deleteMany({ where: { employeeId: { in: users } } });
@@ -72,6 +74,7 @@ export class TestData {
     }
     if (locations.length > 0) {
       await db.holiday.deleteMany({ where: { locationId: { in: locations } } });
+      await db.shift.deleteMany({ where: { locationId: { in: locations } } });
       await db.location.deleteMany({ where: { id: { in: locations } } });
     }
     if (departments.length > 0) await db.department.deleteMany({ where: { id: { in: departments } } });

@@ -14,6 +14,7 @@ import {
 import { can } from "@/lib/permissions";
 import { requireActiveActor } from "@/lib/services/actor";
 import { assertCanDecide, createNotification, resolveApprover } from "@/lib/services/approvals";
+import { recomputeAttendance } from "@/lib/services/attendance";
 import { AUDIT_ACTIONS, audit, type AuditDb } from "@/lib/services/audit";
 import { EmployeeAccessError } from "@/lib/services/employee-errors";
 import { LeaveError } from "@/lib/services/leave-errors";
@@ -26,6 +27,11 @@ type AuditMeta = {
 };
 
 const OPEN_REQUEST = ["PENDING", "APPROVED", "CANCELLATION_PENDING"] as const;
+
+/** Leave that counts on the attendance calendar. A pending cancellation is still approved leave. */
+function isEffectiveLeave(status: LeaveRequestStatus): boolean {
+  return status === "APPROVED" || status === "CANCELLATION_PENDING";
+}
 
 type PolicyRow = {
   accrualMode: "MONTHLY" | "ANNUAL" | "MANUAL";
@@ -838,6 +844,19 @@ export async function decideLeaveApproval(input: {
       where: { id: approval.id },
       data: { status: input.decision, comment, decidedAt: new Date() },
     });
+    if (isEffectiveLeave(request.status) !== isEffectiveLeave(nextStatus)) {
+      const days = await tx.leaveRequestDay.findMany({
+        where: { leaveRequestId: request.id },
+        select: { date: true },
+      });
+      await recomputeAttendance(tx, {
+        dates: days.map((day) => formatIsoDate(day.date)),
+        employeeIds: [request.employeeId],
+        actorId: input.actorId,
+        reason: `Leave ${nextStatus === "CANCELLED" ? "cancelled" : "approved"}: ${label}`,
+        meta: input.meta,
+      });
+    }
     await auditStatus(tx, {
       actorId: input.actorId,
       action: nextStatus === "CANCELLED" ? AUDIT_ACTIONS.LEAVE_CANCELLED : action,
@@ -1184,7 +1203,7 @@ export async function loadInbox(userId: string): Promise<{
   }>;
 }> {
   const approvals = await getDb().approvalRequest.findMany({
-    where: { approverId: userId, status: "PENDING" },
+    where: { approverId: userId, status: "PENDING", targetType: "LeaveRequest" },
     include: { requester: { select: { name: true } } },
     orderBy: { createdAt: "asc" },
   });

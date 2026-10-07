@@ -40,8 +40,8 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - [x] 3. Authentication, roles, and server-side permission checks
 - [x] 4. Employee records (status / soft delete, no hard deletes)
 - [x] 5. Leave, holidays, approvals, and inbox
-- [ ] 6. My Space: profile and documents
-- [ ] 7. Attendance
+- [x] 6. Attendance and regularization
+- [ ] 7. My Space: profile and documents
 - [ ] 8. Reports
 - [ ] 9. Settings
 
@@ -93,3 +93,11 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 
 - `npm test` uses the Neon branch `test`, database `avanza_hrms_test` (`TEST_DATABASE_URL` and `TEST_DIRECT_URL`). The guard refuses production (`NODE_ENV`, `PRODUCTION_DATABASE_HOST`), the dev database, and any database name not ending in `_test`.
 - Tests clean up after themselves with `trackTestData()` in `src/test/fixtures.ts`. The runner fails on leftover rows, ignoring audit rows and the leave catalog. Run `npm run db:test:migrate` after each new migration.
+
+## Step 6 notes
+
+- One `Shift` per location (new locations get the General shift). Web punches go to the append-only `attendance_events` table, which is protected by grants and triggers like `audit_log`. Server time only, serialized per employee. A night shift's work date is the day it starts.
+- `computeDailyRecord` in `src/lib/services/attendance-rules.ts` is pure: holiday, then weekly off, then full leave, then punches. `npm run jobs:attendance-daily` catches up to yesterday, defers days whose shifts are still open, and skips regularized, overridden, and locked days. Leave decisions and holiday changes recompute the affected days.
+- Regularization covers the last 7 days, goes through the generic approval inbox, and allows one pending request per day. Approval keeps the raw punches. A month locks after the 3rd of the next month. After that only `attendance.manage` (HR Admin, Super Admin) can submit or approve. HR overrides need a reason and cannot target their own record.
+- Added `Employee.exitDate`. The job only covers employees between joining and exit.
+- Not built: an employee cancel for a pending regularization, and retroactive recompute after shift or weekly-off changes.

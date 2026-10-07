@@ -2,6 +2,7 @@ import { Prisma } from "@/generated/prisma/client";
 import { getDb } from "@/lib/db";
 import { can } from "@/lib/permissions";
 import { requireActiveActor } from "@/lib/services/actor";
+import { createDefaultShift } from "@/lib/services/attendance";
 import { AUDIT_ACTIONS, audit } from "@/lib/services/audit";
 import { EmployeeAccessError, OrganizationError } from "@/lib/services/employee-errors";
 
@@ -246,6 +247,7 @@ export async function createLocation(input: {
         },
         tx,
       );
+      await createDefaultShift(tx, { locationId: row.id, actorId: actor.id, meta: input.meta });
       return row;
     });
   } catch (error) {

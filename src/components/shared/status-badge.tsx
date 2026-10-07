@@ -10,6 +10,7 @@ const statusBadgeVariants = cva(
         success: "border-success/20 bg-success/10 text-success",
         warning: "border-warning/20 bg-warning/10 text-warning",
         info: "border-secondary/20 bg-secondary/10 text-secondary",
+        danger: "border-primary/20 bg-primary/10 text-primary",
         neutral: "border-border bg-muted text-muted-foreground",
       },
     },

@@ -22,9 +22,14 @@ export default async function MyTeamPage() {
         title="My Team"
         description="People who report to you right now."
         actions={
-          <Button variant="secondary" asChild>
-            <Link href="/my-team/leave">Team leave calendar</Link>
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button variant="secondary" asChild>
+              <Link href="/my-team/attendance">Team attendance</Link>
+            </Button>
+            <Button variant="secondary" asChild>
+              <Link href="/my-team/leave">Team leave calendar</Link>
+            </Button>
+          </div>
         }
       />
       {reports.length === 0 ? (

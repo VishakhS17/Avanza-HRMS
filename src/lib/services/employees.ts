@@ -8,6 +8,7 @@ import {
   type Gender as GenderValue,
 } from "@/generated/prisma/client";
 import { getDb } from "@/lib/db";
+import { todayIso } from "@/lib/leave-dates";
 import { can, type Principal } from "@/lib/permissions";
 import { requireActiveActor } from "@/lib/services/actor";
 import { allowedEmailDomain, isCompanyEmail, normalizeEmail } from "@/lib/services/auth-policy";
@@ -929,9 +930,10 @@ export async function changeEmployeeStatus(input: {
     if (status === "EXITED") {
       await assertNotLastSuperAdmin(tx, existing.id);
     }
+    const exitDate = status === "EXITED" ? parseIsoDate(todayIso(), "exit date") : null;
     const employee = await tx.employee.update({
       where: { id: existing.id },
-      data: { status },
+      data: { status, exitDate },
     });
     await audit.log(
       {
@@ -939,8 +941,14 @@ export async function changeEmployeeStatus(input: {
         action: AUDIT_ACTIONS.EMPLOYEE_STATUS_CHANGED,
         entityType: "Employee",
         entityId: employee.id,
-        before: { status: existing.status },
-        after: { status: employee.status },
+        before: {
+          status: existing.status,
+          exitDate: existing.exitDate ? formatIsoDate(existing.exitDate) : null,
+        },
+        after: {
+          status: employee.status,
+          exitDate: employee.exitDate ? formatIsoDate(employee.exitDate) : null,
+        },
         ipAddress: input.meta?.ipAddress,
         userAgent: input.meta?.userAgent,
       },

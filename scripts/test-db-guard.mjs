@@ -60,9 +60,12 @@ export function assertTestDatabase(env = process.env, { requireAppUrl = true } =
     fail("TEST_DIRECT_URL must connect as the owner role, not the app role.");
   }
 
+  // Inside a with-test-db child, DATABASE_URL and DIRECT_URL are already the test values.
+  // The parent's originals travel as DEV_DATABASE_URL and DEV_DIRECT_URL.
   const dev = ["DATABASE_URL", "DIRECT_URL"]
-    .filter((name) => env[name])
-    .map((name) => [name, target(env[name])]);
+    .map((name) => [name, env[`DEV_${name}`] ?? env[name]])
+    .filter(([, url]) => url)
+    .map(([name, url]) => [name, target(url)]);
 
   for (const [name, url] of urls) {
     if (!databaseName(url).endsWith("_test")) fail(`${name} must name a database ending in _test.`);
@@ -77,6 +80,8 @@ export function assertTestDatabase(env = process.env, { requireAppUrl = true } =
 export function testDatabaseEnv(env = process.env) {
   return {
     ...env,
+    DEV_DATABASE_URL: env.DEV_DATABASE_URL ?? env.DATABASE_URL ?? "",
+    DEV_DIRECT_URL: env.DEV_DIRECT_URL ?? env.DIRECT_URL ?? "",
     DATABASE_URL: env.TEST_DATABASE_URL ?? "",
     DIRECT_URL: env.TEST_DIRECT_URL,
   };

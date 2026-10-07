@@ -1,13 +1,18 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { PunchCard } from "@/components/attendance/punch-card";
 import { PageHeader } from "@/components/shared/page-header";
 import { flattenNavItems } from "@/lib/navigation";
+import { getPunchStatus } from "@/lib/services/attendance";
+import { requireUser } from "@/lib/services/current-user";
 
 export const metadata: Metadata = {
   title: "Home",
 };
 
-export default function HomePage() {
+export default async function HomePage() {
+  const user = await requireUser();
+  const punch = await getPunchStatus(user.id);
   const links = flattenNavItems().filter((item) => item.href !== "/");
 
   return (
@@ -16,13 +21,7 @@ export default function HomePage() {
         title="Home"
         description="Internal HR workspace for Avanza Logistics."
       />
-      <section className="rounded-xl border border-border bg-card p-5">
-        <h2 className="text-base font-medium text-foreground">Welcome</h2>
-        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-          The app shell is ready. Profile, attendance, leave, and the rest of
-          HR will be added in later steps.
-        </p>
-      </section>
+      <PunchCard status={punch} />
       <ul className="grid gap-3 sm:grid-cols-2">
         {links.map((item) => {
           const Icon = item.icon;

@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { WEEKDAYS, formatIsoDate, isWeekdayName, parseIsoDate, todayIso, type WeekdayName } from "@/lib/leave-dates";
 import { can } from "@/lib/permissions";
 import { requireActiveActor } from "@/lib/services/actor";
+import { recomputeAttendance } from "@/lib/services/attendance";
 import { AUDIT_ACTIONS, audit } from "@/lib/services/audit";
 import { EmployeeAccessError } from "@/lib/services/employee-errors";
 import { LeaveError } from "@/lib/services/leave-errors";
@@ -154,6 +155,13 @@ export async function createHoliday(input: {
       const row = await tx.holiday.create({
         data: { locationId: location.id, date, name },
       });
+      await recomputeAttendance(tx, {
+        dates: [input.date],
+        locationId: location.id,
+        actorId: actor.id,
+        reason: `Holiday added: ${name}`,
+        meta: input.meta,
+      });
       await audit.log(
         {
           actor: actor.id,
@@ -192,6 +200,15 @@ export async function updateHoliday(input: {
       where: { id: existing.id },
       data: { name, isActive: input.isActive },
     });
+    if (existing.isActive !== input.isActive) {
+      await recomputeAttendance(tx, {
+        dates: [formatIsoDate(existing.date)],
+        locationId: existing.locationId,
+        actorId: actor.id,
+        reason: `Holiday ${input.isActive ? "restored" : "removed"}: ${name}`,
+        meta: input.meta,
+      });
+    }
     await audit.log(
       {
         actor: actor.id,

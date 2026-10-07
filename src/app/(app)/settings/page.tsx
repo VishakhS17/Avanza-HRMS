@@ -13,6 +13,7 @@ export default async function SettingsPage() {
   const user = await requireCan("settings.view");
   const canManageUsers = can(user, "users.manage");
   const canViewAudit = can(user, "audit.view");
+  const canManageAttendance = can(user, "attendance.manage");
 
   return (
     <div className="flex flex-col gap-6">
@@ -45,6 +46,19 @@ export default async function SettingsPage() {
             </Button>
           </div>
         </section>
+        {canManageAttendance ? (
+          <section className="rounded-xl border border-border bg-card p-5">
+            <h2 className="text-base font-medium text-foreground">Shifts</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              One shift per location: start, end, grace, and half-day and full-day hours. Night shifts are supported.
+            </p>
+            <div className="mt-4">
+              <Button variant="secondary" asChild>
+                <Link href="/settings/shifts">Manage shifts</Link>
+              </Button>
+            </div>
+          </section>
+        ) : null}
         <section className="rounded-xl border border-border bg-card p-5">
           <h2 className="text-base font-medium text-foreground">Organization</h2>
           <p className="mt-1 text-sm text-muted-foreground">

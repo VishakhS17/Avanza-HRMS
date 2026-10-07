@@ -54,6 +54,8 @@ The app must never use the owner. On Neon the owner is in `neon_superuser`, whic
 
 Migration `20261006201500_audit_log_app_role` creates `avanza_hrms_app` without login and sets its grants. It also sets default privileges, so tables created by later migrations get read and write for the app role. A later append-only table must revoke `UPDATE` and `DELETE` from `avanza_hrms_app` in its own migration. Run migrations as `avanza_hrms_owner` so those default privileges apply.
 
+`attendance_events` (raw punches) is append-only in the same way as `audit_log`. Migration `20261007120000_attendance_and_regularization` gives the app role only `SELECT` and `INSERT` on it and adds triggers that reject `UPDATE`, `DELETE`, and `TRUNCATE` for any role. A later migration that touches this table must keep both.
+
 `npm run db:roles` connects with `DIRECT_URL`. The first time, it turns on login and sets a random password for `avanza_hrms_app`. It then prints the `DATABASE_URL` to use, with the pooled host on Neon. It always checks that the app role is not elevated, is not a member of any role, owns nothing, and has exactly `SELECT` and `INSERT` on `audit_log`. If any check fails it exits with status 1. Running it again leaves the password alone. Run `npm run db:roles -- --rotate` to set a new one.
 
 ### On Neon
@@ -105,7 +107,7 @@ The runner refuses to start when any of these is true:
 
 Each database test file also checks that it is connected to a `_test` database.
 
-Each test cleans up the rows it creates after it finishes, through `trackTestData()` in `src/test/fixtures.ts`. Audit rows stay because the app role cannot delete them. The leave catalog also stays, because it is shared reference data. The runner fails if the test database has rows before the run, and fails if any test leaves rows behind, ignoring audit rows, the leave catalog, and `_prisma_migrations`.
+Each test cleans up the rows it creates after it finishes, through `trackTestData()` in `src/test/fixtures.ts`. Audit rows stay because the app role cannot delete them. Test punches in `attendance_events` are removed through `TEST_DIRECT_URL` as the owner, with the table's triggers switched off only for that delete. The leave catalog also stays, because it is shared reference data. The runner fails if the test database has rows before the run, and fails if any test leaves rows behind, ignoring audit rows, the leave catalog, and `_prisma_migrations`.
 
 Set up a test database once:
 
@@ -193,12 +195,15 @@ Microsoft Entra ID:
 | `npm run db:studio` | Open Prisma Studio |
 | `npm run jobs:leave-accrual` | Credit monthly and annual leave for the current Asia/Kolkata month or year. Running it again does not double-credit. |
 | `npm run jobs:leave-carry-forward` | Forfeit leave above each type's carry cap for a completed calendar year. In January it uses the previous year. In other months pass `--year YYYY`. Running it again does not forfeit twice. |
+| `npm run jobs:attendance-daily` | Compute daily attendance records from punches, leave, holidays, and the weekly off. It catches up from the latest stored day up to yesterday (IST). `-- --date YYYY-MM-DD` recomputes one past day. Running it again changes nothing. |
 | `npm test` | Run every `src/**/*.test.ts` file one at a time against the test database (see Test database), then check that no test rows remain |
 | `npm run db:test:migrate` | Apply migrations to the test database as its owner |
 | `npm run db:test:roles` | `db:roles` for the test database. Use `-- --rotate` to print a fresh `TEST_DATABASE_URL`. |
 | `npm run db:test:reset` | Empty the test database's tables, keeping audit rows and the leave catalog |
 
-Idle timeout and user status are checked on each request, not by a job. The two leave commands are the scheduled jobs. Run them from cron or Task Scheduler. They are not started by `npm run dev`. System jobs pass `actor: null` on the audit row. Mail is printed to the server console. There is no SMTP variable.
+Idle timeout and user status are checked on each request, not by a job. The two leave commands and the attendance command are the scheduled jobs. Run them from cron or Task Scheduler. They are not started by `npm run dev`.
+
+Run `npm run jobs:attendance-daily` every night after 00:30 IST. A day is computed only once every shift that started on it can no longer be checked out of (shift end plus 6 hours). Until then that employee's day is counted as deferred, and the next run picks it up. With night shifts, run it later in the morning, or run it twice. A missed night is caught up on the next run. The job skips days that were regularized or overridden, and it skips locked months. System jobs pass `actor: null` on the audit row. Mail is printed to the server console. There is no SMTP variable.
 
 ## Project structure
 
@@ -217,16 +222,22 @@ src/app/(app)/settings/users/   Super Admin user and role management
 src/app/(app)/settings/organization/  Departments, designations, locations
 src/app/(app)/settings/holidays/  Holiday calendars and weekly off
 src/app/(app)/settings/audit-log/  Audit log viewer and CSV export
+src/app/(app)/settings/shifts/  One shift per location
+src/app/(app)/my-space/attendance/  Check in and out, month calendar, regularization
+src/app/(app)/my-team/attendance/   Direct reports' attendance
+src/app/(app)/attendance/  HR daily view, employee months, and overrides
 src/app/api/employees/[id]/  Employee JSON. Same scope as the pages.
+src/components/attendance/  Punch card, calendar, month and date navigation
 scripts/leave-accrual.ts  Monthly and annual accrual job
 scripts/leave-carry-forward.ts  Year-end carry-forward job
+scripts/attendance-daily.ts  Nightly attendance job
 src/components/layout/  Sidebar, top bar, shell
 src/components/shared/  PageHeader, DataTable, StatusBadge, EmptyState, ConfirmDialog, FormField
 src/components/ui/      shadcn/ui primitives
 src/lib/auth.ts         Auth.js config
 src/lib/permissions.ts  Permission map and can()
 src/lib/services/       Business logic, including audit, sessions, and users
-prisma/schema.prisma    Users, employees, leave, holidays, and approvals
+prisma/schema.prisma    Users, employees, leave, holidays, approvals, and attendance
 prisma/seed.ts          Bootstrap Super Admin and leave types
 prisma/migrations/      SQL migrations, including the append-only grants
 prisma7.config.ts       Prisma 7 config
@@ -259,6 +270,8 @@ Every user is an Employee. Roles are stored on the user and always include `EMPL
 | Settings → Holiday calendar | HR Admin, Super Admin |
 | Leave requests, balance adjustments, and reversals | HR Admin, Super Admin |
 | Team leave calendar | Manager, HR Admin, Super Admin (direct reports) |
+| Team attendance (`/my-team/attendance`) | Manager, HR Admin, Super Admin (direct reports) |
+| Attendance daily view and overrides (`/attendance`), Settings → Shifts, and changes in a locked month (`attendance.manage`) | HR Admin, Super Admin |
 | Reveal bank details and ID numbers | HR Admin |
 
 A role that fails a page check is redirected to `/forbidden`. `/settings/audit-log/export` and `/api/*` return JSON `403`.
@@ -272,6 +285,14 @@ HR Admin and Super Admin can create an employee. That also creates the matching 
 Leave balance is the sum of ledger rows, not a stored number. Applying places a hold. Approval releases the hold and posts a deduction. The employee can cancel a pending request before the start date. After the start date, or after approval, cancellation needs an approver. The approver is the current reporting manager when that person is active. Otherwise it is the earliest active HR Admin, then the earliest active Super Admin. Nobody can approve their own request. A manager can decide only when they are the assigned approver and still manage that person. HR can decide a request assigned to them, and can decide when the assigned manager is inactive or no longer the manager. Rejection needs a comment.
 
 Casual leave accrues 1 day a month and does not carry forward. Sick leave accrues 6 days a year. Earned leave accrues 1.5 days a month and carries forward up to 12 days. Unpaid leave does not track a balance. Casual and Earned are not available during the first 6 months. Re-running the seed does not change an existing policy.
+
+## Attendance
+
+Employees check in and out on Home or My Space → Attendance. The server records the time and IP address. The time cannot be backdated. Punches are serialized per employee. Each location has one shift, which can be edited under Settings → Shifts. New locations get a General shift (09:30–18:30, 15 minutes grace, half day at 4 hours, full day at 8). A night shift's work date is the day the shift starts. A check-in can open up to `earlyCheckInMinutes` before the shift starts (default 240). A check-out is accepted until 6 hours after the shift ends. An open check-in older than that does not block a new one.
+
+The nightly job turns each day into one record. A holiday comes first, then the weekly off, then full-day approved leave, then punches. Full-day hours give Present or WFH, half-day hours give Half day, and less than that gives Absent. Records are flagged Late, Early exit, or Incomplete. Approving, cancelling, or rejecting leave recomputes the affected days. So does adding a holiday or turning one on or off. Regularized, overridden, and locked days are not recomputed.
+
+An employee can request a regularization for one of the last 7 days. The request gives in and out times and a reason, and goes to the same approver as leave through the Inbox. Only one request per day can be pending. Approval sets that day's record from the requested times. The raw punches stay as they were. A month locks after the 3rd of the following month. After that, only HR Admin and Super Admin can submit or approve a regularization for it. HR can override any record with a reason, including in a locked month, but not their own. Shift and weekly-off changes apply to days computed after the change and do not rewrite old records.
 
 ## Rules
 
@@ -301,7 +322,7 @@ await db.$transaction(async (tx) => {
 });
 ```
 
-Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. Leave and holidays write `LEAVE_REQUESTED`, `LEAVE_APPROVED`, `LEAVE_REJECTED`, `LEAVE_CANCELLED`, `LEAVE_BALANCE_ADJUSTED`, `LEAVE_ACCRUED`, `LEAVE_CARRY_FORWARD`, `LEAVE_REVERSED`, `HOLIDAY_CREATED`, and `HOLIDAY_UPDATED`. There is no update or delete helper. The app role `avanza_hrms_app` has only `SELECT` and `INSERT` on `audit_log`. `UPDATE`, `DELETE`, and `TRUNCATE` are revoked from it and from `PUBLIC`. A trigger also rejects update and delete for any role, the owner included. See Database roles.
+Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. Leave and holidays write `LEAVE_REQUESTED`, `LEAVE_APPROVED`, `LEAVE_REJECTED`, `LEAVE_CANCELLED`, `LEAVE_BALANCE_ADJUSTED`, `LEAVE_ACCRUED`, `LEAVE_CARRY_FORWARD`, `LEAVE_REVERSED`, `HOLIDAY_CREATED`, and `HOLIDAY_UPDATED`. Attendance writes `ATTENDANCE_CHECKED_IN`, `ATTENDANCE_CHECKED_OUT`, `ATTENDANCE_RECORDED` (only when a computed record changes), `ATTENDANCE_OVERRIDDEN`, `ATTENDANCE_REGULARIZATION_REQUESTED`, `ATTENDANCE_REGULARIZATION_APPROVED`, `ATTENDANCE_REGULARIZATION_REJECTED`, `SHIFT_CREATED`, and `SHIFT_UPDATED`. There is no update or delete helper. The app role `avanza_hrms_app` has only `SELECT` and `INSERT` on `audit_log`. `UPDATE`, `DELETE`, and `TRUNCATE` are revoked from it and from `PUBLIC`. A trigger also rejects update and delete for any role, the owner included. See Database roles.
 
 The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:3000/settings/audit-log). Filter by date (IST calendar days), actor, action, and entity. Results are paged at 25 rows. CSV export downloads the current filter, up to 5,000 rows. HR Admin and Super Admin can open it. Other roles cannot, including by calling the export URL directly.
 
@@ -375,3 +396,11 @@ The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:300
 - The runner refuses production, the production host, and the dev database. It requires a `_test` database name. It fails if rows are left behind, ignoring audit rows and the leave catalog.
 - Each test cleans up its own rows (`trackTestData()`). New commands: `db:test:migrate`, `db:test:roles`, `db:test:reset`.
 - The leave approver test now creates its own Super Admin. It had relied on the bootstrap admin in the dev database.
+
+### 2026-10-07 — Attendance and regularization
+
+- Added shifts (one per location), web check-in and check-out, daily attendance records, and regularization requests through the shared Inbox.
+- New scheduled job `npm run jobs:attendance-daily`. It catches up missed days and running it again changes nothing. Leave and holiday changes recompute the affected days.
+- New permission `attendance.manage` (HR Admin, Super Admin) for `/attendance`, overrides, Settings → Shifts, and locked months. Managers see direct reports at `/my-team/attendance`.
+- `attendance_events` is append-only, enforced by grants and triggers. Employees have a new `exitDate`, set when status changes to Exited and backfilled for existing exits.
+- No new environment variables. The test guard now compares against the original dev URLs, so `db:test:reset` works again.

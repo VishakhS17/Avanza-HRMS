@@ -122,6 +122,13 @@ export const navSections: NavSection[] = [
         icon: CalendarOff,
         action: "leave.manage",
       },
+      {
+        title: "Attendance",
+        href: "/attendance",
+        description: "Daily attendance for everyone, with overrides.",
+        icon: Clock,
+        action: "attendance.manage",
+      },
     ],
   },
   {

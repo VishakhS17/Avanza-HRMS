@@ -4,7 +4,9 @@ import { DecisionForm } from "@/app/(app)/inbox/decision-form";
 import { EmptyState } from "@/components/shared/empty-state";
 import { PageHeader } from "@/components/shared/page-header";
 import { StatusBadge } from "@/components/shared/status-badge";
+import { attendanceStatusLabel } from "@/lib/attendance-labels";
 import { sessionLabel } from "@/lib/leave-labels";
+import { loadAttendanceInbox } from "@/lib/services/attendance";
 import { requireUser } from "@/lib/services/current-user";
 import { loadInbox, markNotificationsRead } from "@/lib/services/leave";
 
@@ -15,17 +17,48 @@ export const metadata: Metadata = {
 export default async function InboxPage() {
   const user = await requireUser();
   const inbox = await loadInbox(user.id);
+  const regularizations = await loadAttendanceInbox(user.id);
   await markNotificationsRead(user.id);
 
   return (
     <div className="flex flex-col gap-8">
       <PageHeader
         title="Inbox"
-        description="Leave requests waiting on you, and notices about your own requests."
+        description="Leave and attendance requests waiting on you, and notices about your own requests."
       />
       <section className="flex flex-col gap-3">
         <h2 className="text-base font-medium text-foreground">Pending approvals</h2>
-        {inbox.approvals.length === 0 ? (
+        {regularizations.map((item) => (
+          <article key={item.id} className="rounded-xl border border-border bg-card p-4">
+            <div className="flex flex-wrap items-start justify-between gap-2">
+              <div>
+                <p className="font-medium text-foreground">{item.requesterName}</p>
+                <p className="text-sm text-muted-foreground">
+                  Attendance regularization · {item.workDate} · {item.requestedIn} to {item.requestedOut}
+                </p>
+              </div>
+              <StatusBadge status="warning">Pending</StatusBadge>
+            </div>
+            <p className="mt-3 text-sm text-foreground">{item.reason}</p>
+            <div className="mt-3 text-sm">
+              <p className="text-xs font-medium tracking-wide text-muted-foreground uppercase">Recorded</p>
+              <p className="mt-1 text-foreground">
+                {item.current
+                  ? `${attendanceStatusLabel(item.current.status)} · in ${item.current.firstIn ?? "—"} · out ${item.current.lastOut ?? "—"}`
+                  : "No record yet."}
+              </p>
+              <p className="mt-1 text-muted-foreground">
+                {item.punches.length === 0
+                  ? "No punches."
+                  : item.punches
+                      .map((punch) => `${punch.type === "CHECK_IN" ? "In" : "Out"} ${punch.time}${punch.date !== item.workDate ? ` (${punch.date})` : ""}`)
+                      .join(" · ")}
+              </p>
+            </div>
+            <DecisionForm approvalId={item.id} />
+          </article>
+        ))}
+        {inbox.approvals.length === 0 && regularizations.length === 0 ? (
           <EmptyState title="No pending approvals" description="When someone needs your decision, it shows up here." />
         ) : (
           inbox.approvals.map((item) => (
