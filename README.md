@@ -105,8 +105,8 @@ npm run db:roles
 | `AUTH_MICROSOFT_ENTRA_ID_ID` | No | Entra application (client) id. Leave blank to hide the Microsoft button. Callback: `{AUTH_URL}/api/auth/callback/microsoft-entra-id`. |
 | `AUTH_MICROSOFT_ENTRA_ID_SECRET` | With Microsoft | Entra client secret. |
 | `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | With Microsoft | Tenant issuer, for example `https://login.microsoftonline.com/{tenant-id}/v2.0`. Set this so personal Microsoft accounts cannot sign in. |
-| `AUTH_DEV_LOGIN` | No | `true` shows the shared password form, including in production. |
-| `AUTH_DEV_PASSWORD` | For password sign-in | Shared password that signs in an existing active user. It does not create accounts. Set on Vercel in `.env.production`. |
+| `AUTH_DEV_LOGIN` | No | Local only. `true` shows the shared password form when `NODE_ENV` is not `production` and `AUTH_DEV_PASSWORD` is set. Production ignores this variable. |
+| `AUTH_DEV_PASSWORD` | For local password sign-in | Shared password that signs in an existing active user. It does not create accounts. Set it only in `.env`. Production ignores it. |
 | `AUTH_IDLE_TIMEOUT_MINUTES` | No | Idle timeout for non-admin roles. Default 480 (8 hours). Checked on each request. |
 | `AUTH_ADMIN_IDLE_TIMEOUT_MINUTES` | No | Idle timeout for Super Admin and HR Admin. Default 15. Checked on each request. |
 | `EMPLOYEE_DATA_KEY` | For bank and ID fields | 32-byte key, base64-encoded. Encrypts bank details and government ID numbers. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. |
@@ -114,9 +114,20 @@ npm run db:roles
 
 Copy `.env.example` to `.env`. Do not commit `.env`.
 
+### Where each variable goes
+
+| Place | Git | What belongs there |
+| --- | --- | --- |
+| `.env.example` | Tracked | Names, with secrets left empty. Copy this to `.env`. |
+| `.env` | Local only | Every secret and connection string used on your machine: `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `AUTH_DEV_PASSWORD`, OAuth secrets, and `EMPLOYEE_DATA_KEY`. |
+| `.env.production` | Tracked | Non-secret production defaults only: `AUTH_DEV_LOGIN=false` and `AUTH_URL`. Next.js loads this file when `NODE_ENV` is `production`. |
+| Vercel environment variables | Not in git | Production secrets: `DATABASE_URL` (pooled `avanza_hrms_app`), `AUTH_SECRET`, `AUTH_ALLOWED_EMAIL_DOMAIN`, OAuth client secrets, and `EMPLOYEE_DATA_KEY`. Do not set `AUTH_DEV_PASSWORD`, `AUTH_DEV_LOGIN`, or `DIRECT_URL`. Vercel values override `.env.production`. |
+
+`.env.vercel` is a local scratch copy. It is gitignored, and Next.js does not load it.
+
 ## Development sign-in
 
-The password form is shown when `AUTH_DEV_LOGIN` is `true` and `AUTH_DEV_PASSWORD` is set, including on Vercel. It signs in a user that already exists and is active. It does not create a user.
+The password form is shown only when `NODE_ENV` is not `production`, `AUTH_DEV_LOGIN` is `true`, and `AUTH_DEV_PASSWORD` is set. Production hides the form and rejects the sign-in action even if those variables are set in `.env.production` or on Vercel. It signs in a user that already exists and is active. It does not create a user.
 
 There is no self-signup. Google, Microsoft, and the dev form all reject the sign-in unless a matching `ACTIVE` user already exists on the company domain. The Auth.js adapter refuses to create a user during sign-in.
 
@@ -307,7 +318,12 @@ The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:300
 
 ### 2026-10-07 — Deployed password sign-in
 
-- The shared password form stays available when `AUTH_DEV_LOGIN` is `true` and `AUTH_DEV_PASSWORD` is set, including on Vercel.
+- The shared password form was available on Vercel while `AUTH_DEV_LOGIN` was `true` and `AUTH_DEV_PASSWORD` was set in `.env.production`. That is reversed below.
+
+### 2026-10-07 — Dev password sign-in stays off in production
+
+- `isDevLoginEnabled` returns false when `NODE_ENV` is `production`, whatever `AUTH_DEV_LOGIN` and `AUTH_DEV_PASSWORD` say.
+- `.env.production` keeps only `AUTH_DEV_LOGIN=false` and the public `AUTH_URL`. The shared password is not committed.
 
 ### 2026-10-07 — Restricted app database role
 

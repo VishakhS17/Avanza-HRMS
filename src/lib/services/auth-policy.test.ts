@@ -84,15 +84,25 @@ describe("self-signup", () => {
 });
 
 describe("isDevLoginEnabled", () => {
-  it("follows the flag and password in every environment", () => {
+  it("stays off in production even when the flag and password are set", () => {
     assert.equal(
       isDevLoginEnabled({
         NODE_ENV: "production",
         AUTH_DEV_LOGIN: "true",
         AUTH_DEV_PASSWORD: "secret",
       } as NodeJS.ProcessEnv),
-      true,
+      false,
     );
+    assert.equal(
+      isDevLoginEnabled({
+        NODE_ENV: "production",
+        AUTH_DEV_LOGIN: "false",
+      } as NodeJS.ProcessEnv),
+      false,
+    );
+  });
+
+  it("follows the flag and password outside production", () => {
     assert.equal(
       isDevLoginEnabled({
         NODE_ENV: "development",
@@ -106,6 +116,14 @@ describe("isDevLoginEnabled", () => {
         NODE_ENV: "development",
         AUTH_DEV_LOGIN: "false",
         AUTH_DEV_PASSWORD: "secret",
+      } as NodeJS.ProcessEnv),
+      false,
+    );
+    assert.equal(
+      isDevLoginEnabled({
+        NODE_ENV: "development",
+        AUTH_DEV_LOGIN: "true",
+        AUTH_DEV_PASSWORD: "",
       } as NodeJS.ProcessEnv),
       false,
     );

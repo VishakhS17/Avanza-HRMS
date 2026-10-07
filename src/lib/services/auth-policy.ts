@@ -58,8 +58,14 @@ export function evaluateSignIn(input: {
   return { ok: true };
 }
 
-/** Shared password login. On when the flag is true and a password is set, including production. */
+/**
+ * Shared password login for local development.
+ * Production always returns false, even if AUTH_DEV_LOGIN and AUTH_DEV_PASSWORD are set.
+ */
 export function isDevLoginEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.NODE_ENV === "production") {
+    return false;
+  }
   return env.AUTH_DEV_LOGIN === "true" && Boolean(env.AUTH_DEV_PASSWORD);
 }
 
