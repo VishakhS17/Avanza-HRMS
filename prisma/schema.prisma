@@ -158,6 +158,7 @@ model Location {
   updatedAt   DateTime     @updatedAt
   employments Employment[]
   holidays    Holiday[]
+  shift       Shift?
 
   @@map("locations")
 }
@@ -174,6 +175,8 @@ model Employee {
   gender            Gender?
   joiningDate       DateTime       @db.Date
   status            EmployeeStatus
+  /// Last working day. Set when status becomes EXITED, cleared if the person returns.
+  exitDate          DateTime?      @db.Date
   addressLine1      String?
   addressLine2      String?
   city              String?
@@ -199,6 +202,9 @@ model Employee {
   managedEmployments Employment[]  @relation("ReportingManager")
   leaveRequests     LeaveRequest[]
   leaveLedgerEntries LeaveLedger[]
+  attendanceEvents  AttendanceEvent[]
+  attendanceRecords AttendanceRecord[]
+  regularizations   AttendanceRegularization[]
 
   @@index([status])
   @@map("employees")
@@ -422,4 +428,122 @@ model Holiday {
   @@unique([locationId, date])
   @@index([locationId, isActive])
   @@map("holidays")
+}
+
+enum AttendanceEventType {
+  CHECK_IN
+  CHECK_OUT
+}
+
+enum AttendanceSource {
+  WEB
+}
+
+enum AttendanceMode {
+  OFFICE
+  WFH
+}
+
+enum AttendanceStatus {
+  PRESENT
+  ABSENT
+  HALF_DAY
+  ON_LEAVE
+  HOLIDAY
+  WEEKLY_OFF
+  WFH
+  INCOMPLETE
+}
+
+enum AttendanceFlag {
+  LATE
+  EARLY_EXIT
+  INCOMPLETE
+}
+
+/// One default shift per location. Times are Asia/Kolkata wall-clock "HH:mm".
+/// endTime before startTime means a night shift that ends the next morning.
+model Shift {
+  id                  String   @id @default(cuid())
+  locationId          String   @unique
+  name                String   @default("General")
+  startTime           String
+  endTime             String
+  graceMinutes        Int      @default(15)
+  halfDayHours        Decimal  @db.Decimal(4, 2)
+  fullDayHours        Decimal  @db.Decimal(4, 2)
+  /// A check-in this many minutes before the start belongs to that shift's work date.
+  earlyCheckInMinutes Int      @default(240)
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  location            Location @relation(fields: [locationId], references: [id])
+
+  @@map("shifts")
+}
+
+/// Raw punch. The app role can only insert and read. A trigger rejects UPDATE, DELETE and TRUNCATE.
+/// workDate is the date the shift starts, so a night-shift check-out after midnight keeps the previous date.
+model AttendanceEvent {
+  id         String              @id @default(cuid())
+  employeeId String
+  workDate   DateTime            @db.Date
+  type       AttendanceEventType
+  timestamp  DateTime            @default(now())
+  source     AttendanceSource    @default(WEB)
+  mode       AttendanceMode
+  ipAddress  String?
+  createdAt  DateTime            @default(now())
+  employee   Employee            @relation(fields: [employeeId], references: [id])
+
+  @@index([employeeId, timestamp])
+  @@index([employeeId, workDate])
+  @@index([workDate])
+  @@map("attendance_events")
+}
+
+/// Derived, one per employee per work date. Regularized and overridden rows are not recomputed.
+model AttendanceRecord {
+  id               String                    @id @default(cuid())
+  employeeId       String
+  workDate         DateTime                  @db.Date
+  locationId       String?
+  status           AttendanceStatus
+  flags            AttendanceFlag[]
+  firstIn          DateTime?
+  lastOut          DateTime?
+  workedMinutes    Int                       @default(0)
+  mode             AttendanceMode?
+  regularizationId String?                   @unique
+  overriddenById   String?
+  overrideReason   String?
+  overriddenAt     DateTime?
+  computedAt       DateTime                  @default(now())
+  updatedAt        DateTime                  @updatedAt
+  employee         Employee                  @relation(fields: [employeeId], references: [id])
+  regularization   AttendanceRegularization? @relation(fields: [regularizationId], references: [id])
+
+  @@unique([employeeId, workDate])
+  @@index([workDate, status])
+  @@map("attendance_records")
+}
+
+/// Corrected times for one work date. Original punches stay in attendance_events.
+model AttendanceRegularization {
+  id           String            @id @default(cuid())
+  employeeId   String
+  workDate     DateTime          @db.Date
+  requestedIn  DateTime
+  requestedOut DateTime
+  reason       String
+  status       ApprovalStatus    @default(PENDING)
+  /// "employeeId:workDate" while PENDING, null after a decision. Blocks a second pending request.
+  pendingKey   String?           @unique
+  createdAt    DateTime          @default(now())
+  decidedAt    DateTime?
+  employee     Employee          @relation(fields: [employeeId], references: [id])
+  record       AttendanceRecord?
+
+  @@index([employeeId, workDate])
+  @@index([status])
+  @@map("attendance_regularizations")
 }
