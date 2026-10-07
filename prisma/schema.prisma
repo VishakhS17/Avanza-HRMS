@@ -46,6 +46,11 @@ model User {
   approvalRequestsMade ApprovalRequest[] @relation("ApprovalRequester")
   approvalRequestsToReview ApprovalRequest[] @relation("ApprovalApprover")
   notifications   Notification[]
+  documentsCreated     Document[]                @relation("DocumentCreatedBy")
+  documentsRemoved     Document[]                @relation("DocumentRemovedBy")
+  documentAssignmentsMade DocumentAssignment[]   @relation("DocumentAssignedBy")
+  documentVersionsUploaded DocumentVersion[]
+  documentAcknowledgements DocumentAcknowledgement[]
 
   @@index([status])
   @@map("users")
@@ -205,6 +210,7 @@ model Employee {
   attendanceEvents  AttendanceEvent[]
   attendanceRecords AttendanceRecord[]
   regularizations   AttendanceRegularization[]
+  documentAssignments DocumentAssignment[]
 
   @@index([status])
   @@map("employees")
@@ -546,4 +552,118 @@ model AttendanceRegularization {
   @@index([employeeId, workDate])
   @@index([status])
   @@map("attendance_regularizations")
+}
+
+enum DocumentVisibility {
+  EMPLOYEE_ONLY
+  HR_ONLY
+  EMPLOYEE_AND_HR
+}
+
+enum DocumentUploader {
+  EMPLOYEE
+  HR
+}
+
+enum DocumentStatus {
+  ACTIVE
+  REMOVED
+}
+
+/// Fixed list inserted by the migration. EMPLOYEE categories are uploaded by the employee,
+/// or by HR on their behalf with a note. HR categories are uploaded by HR only.
+model DocumentCategory {
+  id                String             @id
+  code              String             @unique
+  name              String
+  uploader          DocumentUploader
+  defaultVisibility DocumentVisibility
+  /// Opening a file in this category writes an audit row.
+  isSensitive       Boolean
+  sortOrder         Int
+  documents         Document[]
+
+  @@map("document_categories")
+}
+
+/// Never hard-deleted. REMOVED documents stay visible to HR and hidden from employees.
+model Document {
+  id                      String              @id @default(cuid())
+  categoryId              String
+  title                   String
+  description             String?
+  /// Null means the category default. Only HR can set it.
+  visibility              DocumentVisibility?
+  requiresAcknowledgement Boolean             @default(false)
+  expiresOn               DateTime?           @db.Date
+  status                  DocumentStatus      @default(ACTIVE)
+  createdById             String
+  removedById             String?
+  removedAt               DateTime?
+  removedReason           String?
+  createdAt               DateTime            @default(now())
+  updatedAt               DateTime            @updatedAt
+  category                DocumentCategory    @relation(fields: [categoryId], references: [id])
+  createdBy               User                @relation("DocumentCreatedBy", fields: [createdById], references: [id])
+  removedBy               User?               @relation("DocumentRemovedBy", fields: [removedById], references: [id])
+  versions                DocumentVersion[]
+  assignments             DocumentAssignment[]
+
+  @@index([categoryId, status])
+  @@index([createdById])
+  @@map("documents")
+}
+
+/// Who a document belongs to. Personal documents have one row. A policy has many.
+model DocumentAssignment {
+  id           String   @id @default(cuid())
+  documentId   String
+  employeeId   String
+  assignedById String
+  assignedAt   DateTime @default(now())
+  document     Document @relation(fields: [documentId], references: [id])
+  employee     Employee @relation(fields: [employeeId], references: [id])
+  assignedBy   User     @relation("DocumentAssignedBy", fields: [assignedById], references: [id])
+
+  @@unique([documentId, employeeId])
+  @@index([employeeId])
+  @@map("document_assignments")
+}
+
+/// Insert-only for the app role. The current version is the highest versionNumber.
+/// storageKey is random and never sent to the browser.
+model DocumentVersion {
+  id               String                    @id @default(cuid())
+  documentId       String
+  versionNumber    Int
+  storageKey       String                    @unique
+  fileName         String
+  contentType      String
+  sizeBytes        Int
+  sha256           String
+  uploadedById     String
+  /// Set when HR uploads an employee-category file for someone else.
+  onBehalfNote     String?
+  createdAt        DateTime                  @default(now())
+  document         Document                  @relation(fields: [documentId], references: [id])
+  uploadedBy       User                      @relation(fields: [uploadedById], references: [id])
+  acknowledgements DocumentAcknowledgement[]
+
+  @@unique([documentId, versionNumber])
+  @@map("document_versions")
+}
+
+/// Insert-only for the app role. One acknowledgement per user per version.
+model DocumentAcknowledgement {
+  id             String          @id @default(cuid())
+  versionId      String
+  userId         String
+  acknowledgedAt DateTime        @default(now())
+  ipAddress      String?
+  version        DocumentVersion @relation(fields: [versionId], references: [id])
+  user           User            @relation(fields: [userId], references: [id])
+
+  @@unique([versionId, userId])
+  @@index([userId])
+  @@map("document_acknowledgements")
 }
