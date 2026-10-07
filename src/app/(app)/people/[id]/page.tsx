@@ -106,9 +106,16 @@ export default async function EmployeeDetailPage({
         title={record.name}
         description={`${record.employeeCode} · ${record.workEmail}`}
         actions={
-          <StatusBadge status={employeeStatusTone(record.status)}>
-            {employeeStatusLabel(record.status)}
-          </StatusBadge>
+          <>
+            {can(user, "documents.manage") && record.id !== user.id ? (
+              <Link href={`/documents?employee=${record.id}`} className="text-sm text-secondary hover:underline">
+                Documents
+              </Link>
+            ) : null}
+            <StatusBadge status={employeeStatusTone(record.status)}>
+              {employeeStatusLabel(record.status)}
+            </StatusBadge>
+          </>
         }
       />
       <div className="flex gap-4 border-b border-border">

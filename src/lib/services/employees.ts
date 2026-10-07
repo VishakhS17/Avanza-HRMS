@@ -13,6 +13,7 @@ import { can, type Principal } from "@/lib/permissions";
 import { requireActiveActor } from "@/lib/services/actor";
 import { allowedEmailDomain, isCompanyEmail, normalizeEmail } from "@/lib/services/auth-policy";
 import { AUDIT_ACTIONS, audit } from "@/lib/services/audit";
+import { assignOpenPoliciesToEmployee } from "@/lib/services/documents";
 import { decryptField, encryptField } from "@/lib/services/employee-crypto";
 import { EmployeeAccessError, EmployeeError } from "@/lib/services/employee-errors";
 import { SENSITIVE_FIELDS, type SensitiveField } from "@/lib/employee-labels";
@@ -724,6 +725,14 @@ export async function createEmployee(input: {
         },
         tx,
       );
+      if (status === "ACTIVE") {
+        await assignOpenPoliciesToEmployee(tx, {
+          employeeId: employee.id,
+          actorId: actor.id,
+          reason: "Assigned automatically when the employee was created",
+          meta: input.meta,
+        });
+      }
       return { id: employee.id };
     });
   } catch (error) {
@@ -1004,6 +1013,15 @@ export async function changeEmployeeStatus(input: {
         },
         tx,
       );
+    }
+
+    if (status === "ACTIVE") {
+      await assignOpenPoliciesToEmployee(tx, {
+        employeeId: employee.id,
+        actorId: actor.id,
+        reason: "Assigned automatically when the employee became active",
+        meta: input.meta,
+      });
     }
 
     return employee;

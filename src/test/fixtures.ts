@@ -55,7 +55,21 @@ export class TestData {
     const db = getDb();
 
     if (users.length > 0) {
-      await deleteProtectedRows(users);
+      const documentIds = (
+        await db.document.findMany({
+          where: {
+            OR: [
+              { createdById: { in: users } },
+              { removedById: { in: users } },
+              { assignments: { some: { OR: [{ employeeId: { in: users } }, { assignedById: { in: users } }] } } },
+            ],
+          },
+          select: { id: true },
+        })
+      ).map((row) => row.id);
+      await deleteProtectedRows(users, documentIds);
+      await db.documentAssignment.deleteMany({ where: { documentId: { in: documentIds } } });
+      await db.document.deleteMany({ where: { id: { in: documentIds } } });
       await db.attendanceRecord.deleteMany({ where: { employeeId: { in: users } } });
       await db.attendanceRegularization.deleteMany({ where: { employeeId: { in: users } } });
       await db.leaveLedger.deleteMany({ where: { employeeId: { in: users }, reversesId: { not: null } } });
@@ -83,7 +97,7 @@ export class TestData {
 }
 
 /** Rows the app role may not delete. Removed through the test owner connection only. */
-async function deleteProtectedRows(employeeIds: string[]) {
+async function deleteProtectedRows(employeeIds: string[], documentIds: string[]) {
   const client = new pg.Client({ connectionString: process.env.TEST_DIRECT_URL });
   await client.connect();
   try {
@@ -91,12 +105,23 @@ async function deleteProtectedRows(employeeIds: string[]) {
     if (!String(db.rows[0]?.name).endsWith("_test")) {
       throw new Error("TEST_DIRECT_URL is not a test database.");
     }
-    const table = await client.query("SELECT to_regclass('public.attendance_events') AS t");
-    if (!table.rows[0]?.t) return;
     await client.query("BEGIN");
-    await client.query('ALTER TABLE "attendance_events" DISABLE TRIGGER USER');
-    await client.query('DELETE FROM "attendance_events" WHERE "employeeId" = ANY($1)', [employeeIds]);
-    await client.query('ALTER TABLE "attendance_events" ENABLE TRIGGER USER');
+    const table = await client.query("SELECT to_regclass('public.attendance_events') AS t");
+    if (table.rows[0]?.t) {
+      await client.query('ALTER TABLE "attendance_events" DISABLE TRIGGER USER');
+      await client.query('DELETE FROM "attendance_events" WHERE "employeeId" = ANY($1)', [employeeIds]);
+      await client.query('ALTER TABLE "attendance_events" ENABLE TRIGGER USER');
+    }
+    const documents = await client.query("SELECT to_regclass('public.document_versions') AS t");
+    if (documents.rows[0]?.t) {
+      await client.query(
+        `DELETE FROM "document_acknowledgements"
+         WHERE "userId" = ANY($1)
+            OR "versionId" IN (SELECT "id" FROM "document_versions" WHERE "documentId" = ANY($2))`,
+        [employeeIds, documentIds],
+      );
+      await client.query('DELETE FROM "document_versions" WHERE "documentId" = ANY($1)', [documentIds]);
+    }
     await client.query("COMMIT");
   } catch (error) {
     await client.query("ROLLBACK").catch(() => {});

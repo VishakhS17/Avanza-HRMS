@@ -41,7 +41,7 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - [x] 4. Employee records (status / soft delete, no hard deletes)
 - [x] 5. Leave, holidays, approvals, and inbox
 - [x] 6. Attendance and regularization
-- [ ] 7. My Space: profile and documents
+- [x] 7. My Space: profile and documents
 - [ ] 8. Reports
 - [ ] 9. Settings
 
@@ -115,3 +115,13 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - Regularization covers the last 7 days, goes through the generic approval inbox, and allows one pending request per day. Approval keeps the raw punches. A month locks after the 3rd of the next month. After that only `attendance.manage` (HR Admin, Super Admin) can submit or approve. HR overrides need a reason and cannot target their own record.
 - Added `Employee.exitDate`. The job only covers employees between joining and exit.
 - Not built: an employee cancel for a pending regularization, and retroactive recompute after shift or weekly-off changes.
+
+## Step 7 notes
+
+- My Profile shipped in step 4. This step added documents: `DocumentCategory` (8 seeded rows, read-only for the app role), `Document`, `DocumentAssignment`, and the append-only `DocumentVersion` and `DocumentAcknowledgement` (migration `20261007170000_documents`).
+- Rules live in `src/lib/services/documents.ts`. `documents.manage` is HR Admin only. Managers and Super Admins see nothing. HR rights do not apply to an HR Admin's own record except Policies, so their HR-category files need a second HR Admin. Anything not allowed is the same 404.
+- Employees upload Identity, Address, Education, and Certificates, and cannot change visibility. HR uploads everything else and can upload employee categories on someone's behalf with a required note. Version numbers are assigned in a transaction that retries on a unique conflict.
+- An acknowledgement is tied to one version. Ack-required Policies are auto-assigned when an employee is created as, or becomes, Active. "Assign to employees missing this" covers older documents. Notifications use the existing Inbox.
+- Storage is `src/lib/storage` (local disk for dev and tests, S3-compatible for deployment, provider not chosen). Downloads go through `/api/documents/{id}/file`, which audits non-Policies views and redirects to a 60-second signed link. PDF, PNG, and JPEG up to 4 MB, checked by content.
+- Not built: malware scanning, expiry alerts, and email notifications. Vercel needs `STORAGE_DRIVER=s3` and a bucket. The `main` (production) database has not been migrated.
+- `prisma migrate dev` fails on its shadow database, so this migration was generated with `prisma migrate diff` and applied with `migrate deploy`. See the README.

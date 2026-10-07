@@ -76,6 +76,8 @@ Migration `20261006201500_audit_log_app_role` creates `avanza_hrms_app` without 
 
 `attendance_events` (raw punches) is append-only in the same way as `audit_log`. Migration `20261007120000_attendance_and_regularization` gives the app role only `SELECT` and `INSERT` on it and adds triggers that reject `UPDATE`, `DELETE`, and `TRUNCATE` for any role. A later migration that touches this table must keep both.
 
+`document_versions` and `document_acknowledgements` are append-only too. Migration `20261007170000_documents` gives the app role only `SELECT` and `INSERT` on them, and only `SELECT` on `document_categories`, which the migration fills with the eight categories. A new file is a new version row, and a removed document keeps its versions.
+
 `npm run db:roles` connects with `DIRECT_URL`. The first time, it turns on login and sets a random password for `avanza_hrms_app`. It then prints the `DATABASE_URL` to use, with the pooled host on Neon. It always checks that the app role is not elevated, is not a member of any role, owns nothing, and has exactly `SELECT` and `INSERT` on `audit_log`. If any check fails it exits with status 1. Running it again leaves the password alone. Run `npm run db:roles -- --rotate` to set a new one.
 
 ### On Neon
@@ -128,7 +130,7 @@ The runner refuses to start when any of these is true:
 
 Each database test file also checks that it is connected to a `_test` database.
 
-Each test cleans up the rows it creates after it finishes, through `trackTestData()` in `src/test/fixtures.ts`. Audit rows stay because the app role cannot delete them. Test punches in `attendance_events` are removed through `TEST_DIRECT_URL` as the owner, with the table's triggers switched off only for that delete. The leave catalog also stays, because it is shared reference data. The runner fails if the test database has rows before the run, and fails if any test leaves rows behind, ignoring audit rows, the leave catalog, and `_prisma_migrations`.
+Each test cleans up the rows it creates after it finishes, through `trackTestData()` in `src/test/fixtures.ts`. Audit rows stay because the app role cannot delete them. Test punches in `attendance_events` are removed through `TEST_DIRECT_URL` as the owner, with the table's triggers switched off only for that delete. Test document versions and acknowledgements are removed the same way, as the owner. The leave catalog and the document categories also stay, because they are shared reference data. Document tests store files in a temporary folder that is deleted afterwards. The runner fails if the test database has rows before the run, and fails if any test leaves rows behind, ignoring audit rows, the leave catalog, the document categories, and `_prisma_migrations`.
 
 Set up a test database once:
 
@@ -136,7 +138,21 @@ Set up a test database once:
 2. In `.env`, set `TEST_DIRECT_URL` to the owner on the test branch's direct host and database. Set `PRODUCTION_DATABASE_HOST` to the host the deployed app uses, and `DEV_DATABASE_HOST` to the dev database's direct host.
 3. Run `npm run db:test:migrate`, then `npm run db:test:roles -- --rotate`. Put the printed URL in `.env` as `TEST_DATABASE_URL`. This rotates the app role's password on the test branch only.
 
-After adding a migration, run `npm run db:test:migrate` as well as `npm run db:migrate`. If a crashed run left rows behind, `npm run db:test:reset` empties the test tables, keeping audit rows and the leave catalog.
+After adding a migration, run `npm run db:test:migrate` as well as `npm run db:migrate`.
+
+`npm run db:migrate` (`prisma migrate dev`) currently fails while building its shadow database: the shadow copy cannot replay `20261006201500_audit_log_app_role`, which expects `_prisma_migrations` to exist. Do not edit that migration. To add a migration, generate the SQL from the dev database and apply it with `migrate deploy`:
+
+```powershell
+$name = "20261008090000_short_name"   # UTC timestamp, later than every existing folder
+New-Item -ItemType Directory "prisma/migrations/$name"
+node scripts/assert-dev-database.mjs npx prisma migrate diff --from-config-datasource `
+  --to-schema prisma/schema.prisma --script --output "prisma/migrations/$name/migration.sql"
+# Add any grants or seed rows to migration.sql, then:
+node scripts/assert-dev-database.mjs npx prisma migrate deploy
+npm run db:test:migrate
+```
+
+If a crashed run left rows behind, `npm run db:test:reset` empties the test tables, keeping audit rows and the leave catalog.
 
 ## Environment variables
 
@@ -163,6 +179,15 @@ After adding a migration, run `npm run db:test:migrate` as well as `npm run db:m
 | `AUTH_IDLE_TIMEOUT_MINUTES` | No | Idle timeout for non-admin roles. Default 480 (8 hours). Checked on each request. |
 | `AUTH_ADMIN_IDLE_TIMEOUT_MINUTES` | No | Idle timeout for Super Admin and HR Admin. Default 15. Checked on each request. |
 | `EMPLOYEE_DATA_KEY` | For bank and ID fields | 32-byte key, base64-encoded. Encrypts bank details and government ID numbers. Generate one with `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. |
+| `STORAGE_DRIVER` | On Vercel | Where document files are kept. `local` is the dev disk and is refused in production. `s3` is any S3-compatible bucket. Unset means `local` outside production, and an upload error in production. |
+| `STORAGE_LOCAL_DIR` | No | Local driver only. Folder for stored files. Default `.data/storage`, which is gitignored. |
+| `STORAGE_SIGNING_SECRET` | With the local driver | At least 32 characters. Encrypts and signs the 60-second local download links. Generate one like `EMPLOYEE_DATA_KEY`. |
+| `S3_BUCKET` | With `s3` | Private bucket name. Turn off public access on it. |
+| `S3_REGION` | With `s3` | Bucket region, or `auto` for providers that use it. |
+| `S3_ENDPOINT` | No | Blank for AWS. The provider's endpoint URL for R2, B2, MinIO, and similar. |
+| `S3_ACCESS_KEY_ID` | With `s3` | Access key with put, get, and delete on that bucket only. |
+| `S3_SECRET_ACCESS_KEY` | With `s3` | Secret for that key. |
+| `S3_FORCE_PATH_STYLE` | No | `true` for providers that need path-style URLs, such as MinIO. Default `false`. |
 | `POSTGRES_BIN` | No | Optional path to the PostgreSQL `bin` directory used by `npm run db:up`. |
 
 Copy `.env.example` to `.env`. Do not commit `.env`.
@@ -172,9 +197,9 @@ Copy `.env.example` to `.env`. Do not commit `.env`.
 | Place | Git | What belongs there |
 | --- | --- | --- |
 | `.env.example` | Tracked | Names, with secrets left empty. Copy this to `.env`. |
-| `.env` | Local only | Secrets for this machine, including the dev database (`DATABASE_URL`, `DIRECT_URL`), the test database, `DEV_DATABASE_HOST`, `PRODUCTION_DATABASE_HOST`, `AUTH_SECRET`, `AUTH_DEV_PASSWORD`, OAuth secrets, and `EMPLOYEE_DATA_KEY`. |
+| `.env` | Local only | Secrets for this machine, including the dev database (`DATABASE_URL`, `DIRECT_URL`), the test database, `DEV_DATABASE_HOST`, `PRODUCTION_DATABASE_HOST`, `AUTH_SECRET`, `AUTH_DEV_PASSWORD`, OAuth secrets, `EMPLOYEE_DATA_KEY`, and `STORAGE_SIGNING_SECRET`. |
 | `.env.production` | Tracked | Non-secret production defaults only: `AUTH_DEV_LOGIN=false` and `AUTH_URL`. Next.js loads this file when `NODE_ENV` is `production`. |
-| Vercel environment variables | Not in git | The deployed database, which is Neon branch `main`, database `avanza_hrms`: `DATABASE_URL` (pooled `avanza_hrms_app`), plus `AUTH_SECRET`, `AUTH_ALLOWED_EMAIL_DOMAIN`, OAuth client secrets, and `EMPLOYEE_DATA_KEY`. Do not set the dev or test URLs, `AUTH_DEV_PASSWORD`, `AUTH_DEV_LOGIN`, or `DIRECT_URL`. Vercel values override `.env.production`. |
+| Vercel environment variables | Not in git | The deployed database, which is Neon branch `main`, database `avanza_hrms`: `DATABASE_URL` (pooled `avanza_hrms_app`), plus `AUTH_SECRET`, `AUTH_ALLOWED_EMAIL_DOMAIN`, OAuth client secrets, `EMPLOYEE_DATA_KEY`, `STORAGE_DRIVER=s3`, and the `S3_*` variables. Do not set the dev or test URLs, `AUTH_DEV_PASSWORD`, `AUTH_DEV_LOGIN`, or `DIRECT_URL`. Vercel values override `.env.production`. |
 
 `.env.vercel` is a local scratch copy. It is gitignored, and Next.js does not load it.
 
@@ -238,7 +263,7 @@ Microsoft Entra ID:
 | `npm run db:generate` | Generate the Prisma client |
 | `npm run db:up` | Start the local Postgres cluster and ensure the owner role `avanza_hrms_owner` exists |
 | `npm run db:down` | Stop the local Postgres cluster |
-| `npm run db:migrate` | Create and apply a migration on the dev database (as the owner, via `DIRECT_URL`). Refuses the production host unless `NODE_ENV` is `production`. |
+| `npm run db:migrate` | Create and apply a migration on the dev database (as the owner, via `DIRECT_URL`). Refuses the production host unless `NODE_ENV` is `production`. Currently fails on its shadow database. Use the `migrate diff` steps under Test database. |
 | `npm run db:roles` | Turn on login for `avanza_hrms_app`, print its `DATABASE_URL`, and check its `audit_log` privileges. `-- --rotate` sets a new password. |
 | `npm run db:seed` | Create the bootstrap Super Admin if that email is missing, and insert leave types if they are missing |
 | `npm run seed:handtest` | Dev database only. Add the hand-test department, location, and three sample users through the services (see Hand-testing). Running it again changes nothing. |
@@ -277,7 +302,13 @@ src/app/(app)/my-space/attendance/  Check in and out, month calendar, regulariza
 src/app/(app)/my-team/attendance/   Direct reports' attendance
 src/app/(app)/attendance/  HR daily view, employee months, and overrides
 src/app/api/employees/[id]/  Employee JSON. Same scope as the pages.
+src/app/(app)/my-space/documents/  Mine and From HR shelves, uploads, acknowledgements
+src/app/(app)/documents/   HR document list, upload, and detail (versions, assignees, acks)
+src/app/api/documents/[id]/file/  Checks access, then redirects to a 60-second signed link
+src/app/api/storage/local/  Serves local-disk files from a signed token (dev only)
+src/lib/storage/        Storage interface, local and S3 adapters, file validation
 src/components/attendance/  Punch card, calendar, month and date navigation
+src/components/documents/  Shared document form helpers
 scripts/leave-accrual.ts  Monthly and annual accrual job
 scripts/leave-carry-forward.ts  Year-end carry-forward job
 scripts/attendance-daily.ts  Nightly attendance job
@@ -287,7 +318,7 @@ src/components/ui/      shadcn/ui primitives
 src/lib/auth.ts         Auth.js config
 src/lib/permissions.ts  Permission map and can()
 src/lib/services/       Business logic, including audit, sessions, and users
-prisma/schema.prisma    Users, employees, leave, holidays, approvals, and attendance
+prisma/schema.prisma    Users, employees, leave, holidays, approvals, attendance, and documents
 prisma/seed.ts          Bootstrap Super Admin and leave types
 scripts/seed-handtest.ts  Dev-only hand-test sample data (npm run seed:handtest)
 scripts/handtest-guard.mjs  Refuses hand-test seeding outside avanza_hrms_dev
@@ -327,6 +358,8 @@ Every user is an Employee. Roles are stored on the user and always include `EMPL
 | Team attendance (`/my-team/attendance`) | Manager, HR Admin, Super Admin (direct reports) |
 | Attendance daily view and overrides (`/attendance`), Settings → Shifts, and changes in a locked month (`attendance.manage`) | HR Admin, Super Admin |
 | Reveal bank details and ID numbers | HR Admin |
+| My Space → Documents (own files and files shared by HR) | Every active user |
+| Documents (`/documents`): upload, assign, versions, acknowledgements, remove (`documents.manage`) | HR Admin, never on their own record except Policies |
 
 A role that fails a page check is redirected to `/forbidden`. `/settings/audit-log/export` and `/api/*` return JSON `403`.
 
@@ -347,6 +380,43 @@ Employees check in and out on Home or My Space → Attendance. The server record
 The nightly job turns each day into one record. A holiday comes first, then the weekly off, then full-day approved leave, then punches. Full-day hours give Present or WFH, half-day hours give Half day, and less than that gives Absent. Records are flagged Late, Early exit, or Incomplete. Approving, cancelling, or rejecting leave recomputes the affected days. So does adding a holiday or turning one on or off. Regularized, overridden, and locked days are not recomputed.
 
 An employee can request a regularization for one of the last 7 days. The request gives in and out times and a reason, and goes to the same approver as leave through the Inbox. Only one request per day can be pending. Approval sets that day's record from the requested times. The raw punches stay as they were. A month locks after the 3rd of the following month. After that, only HR Admin and Super Admin can submit or approve a regularization for it. HR can override any record with a reason, including in a locked month, but not their own. Shift and weekly-off changes apply to days computed after the change and do not rewrite old records.
+
+## Documents
+
+Employees use My Space → Documents. It has two shelves. **Mine** holds files they uploaded or that HR uploaded on their behalf. **From HR** holds files HR shared with them, and shows a badge with the number waiting for acknowledgement. HR Admin uses **Documents** (`/documents`) to upload, assign, track acknowledgements, and see version history. From an employee's People page, the Documents button opens that person's files.
+
+| Category | Uploaded by | Default visibility | Views audited |
+| --- | --- | --- | --- |
+| Identity, Address, Education, Certificates | The employee, or HR Admin on their behalf | Employee and HR | Yes |
+| Employment, Payslips | HR Admin, for one employee | Employee and HR | Yes |
+| Policies | HR Admin, for one or many employees | Employee and HR | No. Acknowledgements are audited. |
+| Other HR | HR Admin, for one or many employees | HR only | Yes |
+
+- Visibility is set per category. HR Admin can override it per document (Employee only, HR only, Employee and HR). Employees cannot change visibility, so they cannot hide their own uploads from HR.
+- HR Admin can upload Identity, Address, Education, or Certificates for an employee who does not use a computer. A short "uploaded on behalf of" note is required. It is stored on the version and in the audit reason, and both screens show who uploaded the file.
+- A new file is a new version. Employees see and download only the current version. HR sees every version. Each document can have an optional expiry date. There are no expiry alerts.
+- "Requires acknowledgement" applies to HR categories. An acknowledgement records the user, the exact version, and the time. A new version makes the document pending again. The HR document page shows who has acknowledged and who is pending.
+- **Assign to employees missing this** on a Policies or Other HR document adds every active employee who does not have it yet. Every active Policies document that requires acknowledgement is assigned automatically when an employee is created as Active or changes to Active.
+- Notifications go to the Inbox: to the employee when a document is assigned to them or when a new version needs their acknowledgement, and to every HR Admin when an employee uploads a file or a new version.
+- Removing a document is a soft delete with a reason. Employees can remove only files they uploaded themselves. Removed documents disappear for employees. HR still sees them, marked Removed, with their versions.
+- Managers and Super Admins cannot see documents. Super Admin is not given `documents.manage`.
+
+### HR Admin's own record
+
+HR rights do not apply to an HR Admin's own record. On their own record an HR Admin is an employee like anyone else. They upload their own Identity, Address, Education, and Certificates from My Space, and cannot upload, change, assign, remove, or open HR-only files there. Every Employment, Payslips, and Other HR document for an HR Admin needs a second HR Admin. Policies are the exception, because they are company-wide.
+
+### Files and downloads
+
+- PDF, PNG, and JPEG only, up to 4 MB. The file's first bytes must match its extension and declared type. Uploads go through the server (Next.js server actions accept bodies up to 4.5 MB, matching Vercel's request limit).
+- Storage is private. Files are stored under a random key (`documents/{uuid}`) that never appears in a page, a response, or the audit log.
+- A download opens `/api/documents/{id}/file` (`?version=n` for HR). The server checks the session and the access rules, audits the view for audited categories, and redirects to a signed link that expires after 60 seconds. Guessed, missing, and forbidden IDs all get the same 404. An exited or deactivated employee cannot download.
+- With the local driver, the link is `/api/storage/local?token=...`. The token is encrypted and authenticated with `STORAGE_SIGNING_SECRET`, so it cannot be edited to point at another file. That route returns 404 in production. With `s3`, the link is an S3 presigned URL for that one object.
+- Files are always served as attachments, with the file name cleaned of paths, control characters, and quote and header characters.
+- **Known limitation:** uploads are not scanned for malware. Revisit this before rolling documents out beyond HR's own use.
+
+### Storage setup
+
+Local development needs only `STORAGE_SIGNING_SECRET` in `.env` (files go to `.data/storage`). Vercel has no persistent disk, so the deployed app needs `STORAGE_DRIVER=s3` and the `S3_*` variables. The provider is not chosen yet. Any S3-compatible service works: create a private bucket, an access key limited to that bucket, set the variables on Vercel, and redeploy. Until then, uploads on Vercel fail with a configuration error, and the rest of the app works.
 
 ## Rules
 
@@ -376,7 +446,7 @@ await db.$transaction(async (tx) => {
 });
 ```
 
-Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. Leave and holidays write `LEAVE_REQUESTED`, `LEAVE_APPROVED`, `LEAVE_REJECTED`, `LEAVE_CANCELLED`, `LEAVE_BALANCE_ADJUSTED`, `LEAVE_ACCRUED`, `LEAVE_CARRY_FORWARD`, `LEAVE_REVERSED`, `HOLIDAY_CREATED`, and `HOLIDAY_UPDATED`. Attendance writes `ATTENDANCE_CHECKED_IN`, `ATTENDANCE_CHECKED_OUT`, `ATTENDANCE_RECORDED` (only when a computed record changes), `ATTENDANCE_OVERRIDDEN`, `ATTENDANCE_REGULARIZATION_REQUESTED`, `ATTENDANCE_REGULARIZATION_APPROVED`, `ATTENDANCE_REGULARIZATION_REJECTED`, `SHIFT_CREATED`, and `SHIFT_UPDATED`. There is no update or delete helper. The app role `avanza_hrms_app` has only `SELECT` and `INSERT` on `audit_log`. `UPDATE`, `DELETE`, and `TRUNCATE` are revoked from it and from `PUBLIC`. A trigger also rejects update and delete for any role, the owner included. See Database roles.
+Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. Leave and holidays write `LEAVE_REQUESTED`, `LEAVE_APPROVED`, `LEAVE_REJECTED`, `LEAVE_CANCELLED`, `LEAVE_BALANCE_ADJUSTED`, `LEAVE_ACCRUED`, `LEAVE_CARRY_FORWARD`, `LEAVE_REVERSED`, `HOLIDAY_CREATED`, and `HOLIDAY_UPDATED`. Attendance writes `ATTENDANCE_CHECKED_IN`, `ATTENDANCE_CHECKED_OUT`, `ATTENDANCE_RECORDED` (only when a computed record changes), `ATTENDANCE_OVERRIDDEN`, `ATTENDANCE_REGULARIZATION_REQUESTED`, `ATTENDANCE_REGULARIZATION_APPROVED`, `ATTENDANCE_REGULARIZATION_REJECTED`, `SHIFT_CREATED`, and `SHIFT_UPDATED`. Documents write `DOCUMENT_UPLOADED`, `DOCUMENT_VERSION_ADDED`, `DOCUMENT_UPDATED` (details or visibility), `DOCUMENT_ASSIGNED`, `DOCUMENT_REMOVED`, `DOCUMENT_ACKNOWLEDGED`, and `DOCUMENT_VIEWED` (each download in every category except Policies). There is no update or delete helper. The app role `avanza_hrms_app` has only `SELECT` and `INSERT` on `audit_log`. `UPDATE`, `DELETE`, and `TRUNCATE` are revoked from it and from `PUBLIC`. A trigger also rejects update and delete for any role, the owner included. See Database roles.
 
 The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:3000/settings/audit-log). Filter by date (IST calendar days), actor, action, and entity. Results are paged at 25 rows. CSV export downloads the current filter, up to 5,000 rows. HR Admin and Super Admin can open it. Other roles cannot, including by calling the export URL directly.
 
@@ -469,3 +539,12 @@ The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:300
 - New command `npm run seed:handtest`. It adds one department, designation, and location, plus three sample users on `avanza.example`, to the dev database through the services. Running it again changes nothing.
 - It refuses production `NODE_ENV`, the production and test hosts, any database other than `avanza_hrms_dev`, and a non-example email domain.
 - No auth change. The dev password form already signs in any active user on the company domain. No new environment variables or scheduled jobs.
+
+### 2026-10-07 — Documents
+
+- Added document categories, documents, assignments, append-only versions, and append-only acknowledgements (migration `20261007170000_documents`). Screens: My Space → Documents (Mine and From HR) and HR Documents at `/documents`.
+- New permission `documents.manage` (HR Admin only). Managers and Super Admins cannot see documents. HR rights do not apply to an HR Admin's own record, except Policies, so those files need a second HR Admin.
+- HR can upload employee-category files on an employee's behalf with a required note. Policies requiring acknowledgement are assigned automatically to new and newly active employees, and "assign to employees missing this" fills gaps. Assignments, new versions to acknowledge, and employee uploads create Inbox notifications.
+- Private storage behind an S3-compatible interface, with a local-disk adapter for development. Downloads redirect to 60-second signed links. PDF, PNG, and JPEG up to 4 MB, checked by content. No malware scanning yet.
+- New env vars: `STORAGE_DRIVER`, `STORAGE_LOCAL_DIR`, `STORAGE_SIGNING_SECRET`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`. Vercel needs `STORAGE_DRIVER=s3` and a bucket before uploads work there. No new commands or scheduled jobs.
+- `npm run db:migrate` fails on its shadow database. New migrations are generated with `prisma migrate diff` and applied with `migrate deploy` (see Test database).

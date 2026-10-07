@@ -77,6 +77,13 @@ describe("can", () => {
     assert.equal(can(manager, "reports.view", report), true);
   });
 
+  it("gives document management to HR Admin only", () => {
+    assert.equal(can(hr, "documents.manage"), true);
+    assert.equal(can(admin, "documents.manage"), false);
+    assert.equal(can(manager, "documents.manage"), false);
+    assert.equal(can(employee, "documents.manage"), false);
+  });
+
   it("rejects an inactive user even when the role would allow the action", () => {
     const inactive = buildPrincipal({
       id: "admin",
@@ -103,6 +110,11 @@ describe("route guards", () => {
     assert.equal(can(employee, guardForPath("/settings") ?? "app.view"), false);
     assert.equal(can(employee, guardForPath("/settings/audit-log") ?? "app.view"), false);
     assert.equal(can(hr, guardForPath("/settings/users") ?? "app.view"), false);
+    assert.equal(guardForPath("/documents"), "documents.manage");
+    assert.equal(guardForPath("/documents/abc"), "documents.manage");
+    assert.equal(guardForPath("/my-space/documents"), null);
+    assert.equal(can(manager, guardForPath("/documents") ?? "app.view"), false);
+    assert.equal(can(admin, guardForPath("/documents") ?? "app.view"), false);
   });
 });
 

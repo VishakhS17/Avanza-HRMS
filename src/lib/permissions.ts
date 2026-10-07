@@ -24,6 +24,7 @@ export const ACTIONS = [
   "employee.sensitive.view",
   "leave.manage",
   "attendance.manage",
+  "documents.manage",
 ] as const;
 
 export type Action = (typeof ACTIONS)[number];
@@ -71,6 +72,8 @@ export const PERMISSIONS: Record<Action, PermissionRule> = {
   "leave.manage": { roles: ["HR_ADMIN", "SUPER_ADMIN"] },
   /** Daily view, overrides, shift settings, and edits in a locked month. */
   "attendance.manage": { roles: ["HR_ADMIN", "SUPER_ADMIN"] },
+  /** Upload and assign, open HR-visible files, track acknowledgements. Not on one's own record, except Policies. */
+  "documents.manage": { roles: ["HR_ADMIN"] },
 };
 
 /** Longer prefixes first so `/settings/users` does not match `/settings` only. */
@@ -82,6 +85,7 @@ export const ROUTE_GUARDS: readonly { prefix: string; action: Action }[] = [
   { prefix: "/people", action: "people.view" },
   { prefix: "/leave", action: "leave.manage" },
   { prefix: "/attendance", action: "attendance.manage" },
+  { prefix: "/documents", action: "documents.manage" },
   { prefix: "/my-team", action: "team.view" },
   { prefix: "/reports", action: "reports.view" },
 ];

@@ -2,14 +2,20 @@
  * Leftover-row check and reset for the test database. Connects as the owner (TEST_DIRECT_URL).
  *   node scripts/with-test-db.mjs node scripts/test-db-check.mjs          report leftovers
  *   node scripts/with-test-db.mjs node scripts/test-db-check.mjs --reset  empty the test tables
- * Audit rows (append-only), the leave catalog, and Prisma's migration table are ignored.
+ * Audit rows (append-only), the leave catalog, document categories, and Prisma's migration table are ignored.
  */
 import "dotenv/config";
 import { pathToFileURL } from "node:url";
 import pg from "pg";
 import { assertTestDatabase } from "./test-db-guard.mjs";
 
-const IGNORED = new Set(["_prisma_migrations", "audit_log", "leave_types", "leave_policies"]);
+const IGNORED = new Set([
+  "_prisma_migrations",
+  "audit_log",
+  "leave_types",
+  "leave_policies",
+  "document_categories",
+]);
 
 async function connect() {
   assertTestDatabase(process.env, { requireAppUrl: false });

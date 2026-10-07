@@ -74,7 +74,7 @@ export const navSections: NavSection[] = [
       {
         title: "Documents",
         href: "/my-space/documents",
-        description: "Files shared with you.",
+        description: "Your documents and files shared by HR.",
         icon: FileText,
         action: "app.view",
       },
@@ -128,6 +128,13 @@ export const navSections: NavSection[] = [
         description: "Daily attendance for everyone, with overrides.",
         icon: Clock,
         action: "attendance.manage",
+      },
+      {
+        title: "Documents",
+        href: "/documents",
+        description: "Upload, assign, and track employee documents.",
+        icon: FileText,
+        action: "documents.manage",
       },
     ],
   },

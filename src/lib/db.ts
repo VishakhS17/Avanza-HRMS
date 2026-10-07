@@ -4,8 +4,8 @@ import { requireDatabaseUrl } from "@/lib/env";
 
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient };
 
-// Insert-only guard for audit_log and attendance_events. The migrations also
-// revoke UPDATE and DELETE from the app role and add rejecting triggers.
+// Insert-only guard for audit_log, attendance_events, document_versions, and
+// document_acknowledgements. The migrations also revoke UPDATE and DELETE from the app role.
 const appendOnlyMutations: ReadonlySet<string> = new Set([
   "update",
   "updateMany",
@@ -33,6 +33,22 @@ export function getDb(): PrismaClient {
           async $allOperations({ operation, args, query }) {
             if (appendOnlyMutations.has(operation)) {
               throw new Error("Attendance punches are append-only.");
+            }
+            return query(args);
+          },
+        },
+        documentVersion: {
+          async $allOperations({ operation, args, query }) {
+            if (appendOnlyMutations.has(operation)) {
+              throw new Error("Document versions are append-only.");
+            }
+            return query(args);
+          },
+        },
+        documentAcknowledgement: {
+          async $allOperations({ operation, args, query }) {
+            if (appendOnlyMutations.has(operation)) {
+              throw new Error("Document acknowledgements are append-only.");
             }
             return query(args);
           },
