@@ -1,7 +1,8 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { after, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { getDb } from "@/lib/db";
+import { trackTestData } from "@/test/fixtures";
 import { buildPrincipal } from "@/lib/permissions";
 import { allowedEmailDomain } from "@/lib/services/auth-policy";
 import {
@@ -34,32 +35,7 @@ describe("reportingCycleError", () => {
 });
 
 describe("employee scope and job history", () => {
-  const userIds: string[] = [];
-  const departmentIds: string[] = [];
-  const designationIds: string[] = [];
-  const locationIds: string[] = [];
-
-  after(async () => {
-    if (userIds.length > 0) {
-      await getDb().employment.deleteMany({
-        where: {
-          OR: [{ employeeId: { in: userIds } }, { reportingManagerId: { in: userIds } }],
-        },
-      });
-      await getDb().employee.deleteMany({ where: { id: { in: userIds } } });
-      await getDb().user.deleteMany({ where: { id: { in: userIds } } });
-    }
-    if (departmentIds.length > 0) {
-      await getDb().department.deleteMany({ where: { id: { in: departmentIds } } });
-    }
-    if (designationIds.length > 0) {
-      await getDb().designation.deleteMany({ where: { id: { in: designationIds } } });
-    }
-    if (locationIds.length > 0) {
-      await getDb().location.deleteMany({ where: { id: { in: locationIds } } });
-    }
-    await getDb().$disconnect();
-  });
+  const { userIds, departmentIds, designationIds, locationIds } = trackTestData();
 
   async function insertUser(roles: Array<"SUPER_ADMIN" | "HR_ADMIN" | "MANAGER" | "EMPLOYEE">) {
     const domain = allowedEmailDomain();

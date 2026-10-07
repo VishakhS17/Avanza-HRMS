@@ -88,3 +88,8 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - Grants and default privileges are in migration `20261006201500_audit_log_app_role`. The password is set by `npm run db:roles`, not by a migration. Never create the app role in the Neon Console, because that adds it to `neon_superuser`.
 - A new append-only table must revoke `UPDATE` and `DELETE` from `avanza_hrms_app` in its own migration. Default privileges give new tables read and write.
 - `npm test` runs files one at a time. Vercel's `DATABASE_URL` must be switched to the app role.
+
+## Test database
+
+- `npm test` uses the Neon branch `test`, database `avanza_hrms_test` (`TEST_DATABASE_URL` and `TEST_DIRECT_URL`). The guard refuses production (`NODE_ENV`, `PRODUCTION_DATABASE_HOST`), the dev database, and any database name not ending in `_test`.
+- Tests clean up after themselves with `trackTestData()` in `src/test/fixtures.ts`. The runner fails on leftover rows, ignoring audit rows and the leave catalog. Run `npm run db:test:migrate` after each new migration.

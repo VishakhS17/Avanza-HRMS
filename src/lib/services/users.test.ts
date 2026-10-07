@@ -1,20 +1,14 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { after, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { getDb } from "@/lib/db";
+import { trackTestData } from "@/test/fixtures";
 import { AUDIT_ACTIONS } from "@/lib/services/audit";
 import { allowedEmailDomain } from "@/lib/services/auth-policy";
 import { setUserStatus, updateUserRoles, UserAdminError } from "@/lib/services/users";
 
 describe("user administration audit", () => {
-  const createdIds: string[] = [];
-
-  after(async () => {
-    if (createdIds.length > 0) {
-      await getDb().user.deleteMany({ where: { id: { in: createdIds } } });
-    }
-    await getDb().$disconnect();
-  });
+  const { userIds: createdIds } = trackTestData();
 
   async function insertUser(roles: Array<"SUPER_ADMIN" | "HR_ADMIN" | "MANAGER" | "EMPLOYEE">) {
     const domain = allowedEmailDomain();

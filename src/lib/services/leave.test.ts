@@ -1,8 +1,9 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { after, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { Prisma } from "@/generated/prisma/client";
 import { getDb } from "@/lib/db";
+import { trackTestData } from "@/test/fixtures";
 import { countLeaveDays } from "@/lib/leave-dates";
 import { allowedEmailDomain } from "@/lib/services/auth-policy";
 import { createEmployee } from "@/lib/services/employees";
@@ -109,40 +110,7 @@ describe("countLeaveDays", () => {
 });
 
 describe("leave ledger, accrual, and approvers", () => {
-  const userIds: string[] = [];
-  const departmentIds: string[] = [];
-  const designationIds: string[] = [];
-  const locationIds: string[] = [];
-
-  after(async () => {
-    const db = getDb();
-    if (userIds.length > 0) {
-      await db.leaveLedger.deleteMany({
-        where: { employeeId: { in: userIds }, entryType: "REVERSAL" },
-      });
-      await db.leaveLedger.deleteMany({ where: { employeeId: { in: userIds } } });
-      await db.leaveRequestDay.deleteMany({ where: { employeeId: { in: userIds } } });
-      await db.leaveRequest.deleteMany({ where: { employeeId: { in: userIds } } });
-      await db.approvalRequest.deleteMany({
-        where: { OR: [{ requesterId: { in: userIds } }, { approverId: { in: userIds } }] },
-      });
-      await db.notification.deleteMany({ where: { userId: { in: userIds } } });
-      await db.employment.deleteMany({
-        where: {
-          OR: [{ employeeId: { in: userIds } }, { reportingManagerId: { in: userIds } }],
-        },
-      });
-      await db.employee.deleteMany({ where: { id: { in: userIds } } });
-      await db.user.deleteMany({ where: { id: { in: userIds } } });
-    }
-    if (departmentIds.length > 0) await db.department.deleteMany({ where: { id: { in: departmentIds } } });
-    if (designationIds.length > 0) await db.designation.deleteMany({ where: { id: { in: designationIds } } });
-    if (locationIds.length > 0) {
-      await db.holiday.deleteMany({ where: { locationId: { in: locationIds } } });
-      await db.location.deleteMany({ where: { id: { in: locationIds } } });
-    }
-    await db.$disconnect();
-  });
+  const { userIds, departmentIds, designationIds, locationIds } = trackTestData();
 
   async function insertUser(roles: Array<"SUPER_ADMIN" | "HR_ADMIN" | "MANAGER" | "EMPLOYEE">) {
     const domain = allowedEmailDomain();
@@ -332,6 +300,7 @@ describe("leave ledger, accrual, and approvers", () => {
     assert.ok(domain);
     await ensureLeaveCatalog();
     const hr = await insertUser(["HR_ADMIN", "EMPLOYEE"]);
+    const superAdmin = await insertUser(["SUPER_ADMIN", "EMPLOYEE"]);
     const job = await masters(hr.id);
     const manager = await createEmployee({
       actorId: hr.id,
@@ -366,7 +335,7 @@ describe("leave ledger, accrual, and approvers", () => {
     userIds.push(manager.id, other.id, report.id, unmanaged.id);
 
     assert.equal(await resolveApprover(getDb(), report.id), manager.id);
-    assert.notEqual(await resolveApprover(getDb(), hr.id), hr.id);
+    assert.equal(await resolveApprover(getDb(), hr.id), superAdmin.id);
 
     await getDb().user.update({ where: { id: manager.id }, data: { status: "INACTIVE" } });
     const fallback = await resolveApprover(getDb(), unmanaged.id);

@@ -1,7 +1,8 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { after, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { getDb } from "@/lib/db";
+import { trackTestData } from "@/test/fixtures";
 import { AUDIT_ACTIONS, REDACTED, audit, redactSensitive } from "@/lib/services/audit";
 
 describe("redactSensitive", () => {
@@ -39,9 +40,7 @@ describe("redactSensitive", () => {
 });
 
 describe("audit.log", () => {
-  after(async () => {
-    await getDb().$disconnect();
-  });
+  trackTestData();
 
   it("writes a row with redacted before and after", async () => {
     const entityId = `audit-test-${crypto.randomUUID()}`;

@@ -12,12 +12,15 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "prisma db seed",
     "db:roles": "node scripts/db-roles.mjs",
+    "db:test:migrate": "node scripts/with-test-db.mjs npx prisma migrate deploy",
+    "db:test:roles": "node scripts/with-test-db.mjs node scripts/db-roles.mjs",
+    "db:test:reset": "node scripts/with-test-db.mjs node scripts/test-db-check.mjs --reset",
     "db:studio": "prisma studio",
     "jobs:leave-accrual": "tsx scripts/leave-accrual.ts",
     "jobs:leave-carry-forward": "tsx scripts/leave-carry-forward.ts",
     "db:up": "node scripts/dev-postgres.mjs up",
     "db:down": "node scripts/dev-postgres.mjs down",
-    "test": "node --env-file=.env --import tsx --test --test-concurrency=1 src/lib/permissions.test.ts src/lib/services/auth-policy.test.ts src/lib/services/session.test.ts src/lib/services/users.test.ts src/lib/services/audit.test.ts src/lib/services/employees.test.ts src/lib/services/leave.test.ts"
+    "test": "node scripts/run-tests.mjs"
   },
   "dependencies": {
     "@auth/prisma-adapter": "^2.11.3",

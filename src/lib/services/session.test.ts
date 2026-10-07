@@ -1,7 +1,8 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
-import { after, describe, it } from "node:test";
+import { describe, it } from "node:test";
 import { getDb } from "@/lib/db";
+import { trackTestData } from "@/test/fixtures";
 import { allowedEmailDomain } from "@/lib/services/auth-policy";
 import {
   authorizeSessionToken,
@@ -81,14 +82,7 @@ describe("sessionBlockReason", () => {
 });
 
 describe("deactivation check", () => {
-  const createdIds: string[] = [];
-
-  after(async () => {
-    if (createdIds.length > 0) {
-      await getDb().user.deleteMany({ where: { id: { in: createdIds } } });
-    }
-    await getDb().$disconnect();
-  });
+  const { userIds: createdIds } = trackTestData();
 
   it("rejects the next request after the user is deactivated", async () => {
     const domain = allowedEmailDomain();
