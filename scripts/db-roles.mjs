@@ -12,6 +12,9 @@
 import "dotenv/config";
 import { randomBytes } from "node:crypto";
 import pg from "pg";
+import { assertNotProductionHost } from "./db-host-guard.mjs";
+
+assertNotProductionHost();
 
 const appRole = "avanza_hrms_app";
 const rotate = process.argv.includes("--rotate");

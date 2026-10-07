@@ -89,9 +89,15 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - A new append-only table must revoke `UPDATE` and `DELETE` from `avanza_hrms_app` in its own migration. Default privileges give new tables read and write.
 - `npm test` runs files one at a time. Vercel's `DATABASE_URL` must be switched to the app role.
 
+## Dev database
+
+- Local development uses the Neon branch `dev`, database `avanza_hrms_dev` (`DATABASE_URL` app role on the pooled host, `DIRECT_URL` owner on the direct host). It was created empty and then migrated. It is not a copy of the rows in production.
+- Vercel keeps using branch `main`, database `avanza_hrms`. `.env.vercel` is unchanged.
+- `DEV_DATABASE_HOST` is the dev direct host. `npm test` refuses it and `PRODUCTION_DATABASE_HOST`. `npm run dev` and migration commands refuse the production host when `NODE_ENV` is not `production`.
+
 ## Test database
 
-- `npm test` uses the Neon branch `test`, database `avanza_hrms_test` (`TEST_DATABASE_URL` and `TEST_DIRECT_URL`). The guard refuses production (`NODE_ENV`, `PRODUCTION_DATABASE_HOST`), the dev database, and any database name not ending in `_test`.
+- `npm test` uses the Neon branch `test`, database `avanza_hrms_test` (`TEST_DATABASE_URL` and `TEST_DIRECT_URL`). The guard refuses production (`NODE_ENV`, `PRODUCTION_DATABASE_HOST`), the dev host (`DEV_DATABASE_HOST`), and any database name not ending in `_test`.
 - Tests clean up after themselves with `trackTestData()` in `src/test/fixtures.ts`. The runner fails on leftover rows, ignoring audit rows and the leave catalog. Run `npm run db:test:migrate` after each new migration.
 
 ## Step 6 notes

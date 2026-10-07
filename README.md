@@ -37,9 +37,29 @@ Open [http://localhost:3000](http://localhost:3000). You are sent to `/login` un
 
 `npm install` runs `prisma generate`.
 
-The app, the jobs, and the seed read `DATABASE_URL`, which connects as the restricted role `avanza_hrms_app` over the Neon pooler. Prisma migrate reads `DIRECT_URL`, which connects as the owner role `avanza_hrms_owner` on the direct host (no `-pooler`). Both belong in `.env`. Do not commit that file.
+The app, the jobs, and the seed read `DATABASE_URL`, which connects as the restricted role `avanza_hrms_app` over the Neon pooler. Prisma migrate reads `DIRECT_URL`, which connects as the owner role `avanza_hrms_owner` on the direct host (no `-pooler`). In local `.env` both point at the dev database. Do not commit `.env`.
 
 `npm run db:up` starts an optional local Postgres cluster on `127.0.0.1:5433`. The app uses Neon, not this cluster. Data for that cluster lives in `.data/`, which is gitignored. `npm run db:down` stops it. If `initdb` is not on the default PostgreSQL 18 path, set `POSTGRES_BIN` to that `bin` directory before `npm run db:up`.
+
+## Databases
+
+Three databases in the Neon project Avanza HRMS. Local development does not use the database Vercel uses.
+
+| Database | Neon branch | What it holds | Env file |
+| --- | --- | --- | --- |
+| `avanza_hrms_dev` | `dev` | Empty apart from migrations. Local app, seed, and `npm run db:migrate`. | `.env`: `DATABASE_URL` (app role, pooled host) and `DIRECT_URL` (owner role, direct host). `DEV_DATABASE_HOST` is that direct host. |
+| `avanza_hrms_test` | `test` | Same migrations. `npm test` only. | `.env`: `TEST_DATABASE_URL` and `TEST_DIRECT_URL`. |
+| `avanza_hrms` | `main` | The database the deployed app uses today, and the future production database. | Vercel environment variable `DATABASE_URL` (app role, pooled host). `.env.vercel` is a local scratch copy of that and is not loaded by Next.js. |
+
+`npm run dev` and Prisma commands other than `prisma generate` refuse to start when `NODE_ENV` is not `production` and `DATABASE_URL` or `DIRECT_URL` uses `PRODUCTION_DATABASE_HOST`. `npm test` refuses both that host and `DEV_DATABASE_HOST`. A production process (`NODE_ENV=production`, including Vercel) may use the production host.
+
+The `dev` and `test` branches also contain a database named `avanza_hrms`, copied when the branch was created. Do not point `.env` at it. The dev app uses `avanza_hrms_dev`, which was created empty and then migrated.
+
+Set up the dev database once, the same way as the test database:
+
+1. In Neon, create a branch named `dev` from `main`. On that branch, create the database `avanza_hrms_dev` owned by `avanza_hrms_owner`. Roles copy from the parent branch. Do not create or edit roles in the Console.
+2. In `.env`, set `DIRECT_URL` to the owner on the dev branch's direct host and database `avanza_hrms_dev`. Set `DEV_DATABASE_HOST` to that direct host, and `PRODUCTION_DATABASE_HOST` to the host the deployed app uses.
+3. Run `npm run db:migrate`, then `npm run db:roles -- --rotate`. Put the printed URL in `.env` as `DATABASE_URL`. This sets the app role's password on the dev branch only. Do not put that URL on Vercel.
 
 ## Database roles
 
@@ -61,7 +81,7 @@ Migration `20261006201500_audit_log_app_role` creates `avanza_hrms_app` without 
 ### On Neon
 
 1. Use the database owner `avanza_hrms_owner` from the Console for `DIRECT_URL` (Connection details, pooling off).
-2. Run `npm run db:migrate`, then `npm run db:roles`. Put the printed value in `.env` as `DATABASE_URL`, and in Vercel → Settings → Environment Variables. Then redeploy.
+2. For the database Vercel uses, run `npm run db:migrate` and `npm run db:roles` against that database's `DIRECT_URL`. Put the printed value in Vercel → Settings → Environment Variables as `DATABASE_URL`, then redeploy. The local `.env` `DATABASE_URL` stays on the dev branch.
 3. Do not create or edit `avanza_hrms_app` in the Neon Console, CLI, or API. Neon adds roles created there to `neon_superuser`, and that defeats the restriction. Create and change it only with SQL, which is what the migration and `npm run db:roles` do.
 
 To set the password by hand instead of with the script, run this in the Neon SQL Editor as `avanza_hrms_owner` after migrating:
@@ -101,7 +121,8 @@ The runner refuses to start when any of these is true:
 - `PRODUCTION_DATABASE_HOST` is unset.
 - `TEST_DATABASE_URL` or `TEST_DIRECT_URL` is missing.
 - The test database name does not end in `_test`.
-- A test URL uses the production host.
+- A test URL uses the production host (`PRODUCTION_DATABASE_HOST`).
+- `DEV_DATABASE_HOST` is unset, or a test URL uses that dev host.
 - A test URL is the same host and database as `DATABASE_URL` or `DIRECT_URL`.
 - `TEST_DATABASE_URL` does not connect as `avanza_hrms_app`.
 
@@ -112,7 +133,7 @@ Each test cleans up the rows it creates after it finishes, through `trackTestDat
 Set up a test database once:
 
 1. In Neon, create a branch named `test` from `main`. On that branch, create the database `avanza_hrms_test` owned by `avanza_hrms_owner`. Roles copy from the parent branch.
-2. In `.env`, set `TEST_DIRECT_URL` to the owner on the test branch's direct host and database, and set `PRODUCTION_DATABASE_HOST` to the host the deployed app uses.
+2. In `.env`, set `TEST_DIRECT_URL` to the owner on the test branch's direct host and database. Set `PRODUCTION_DATABASE_HOST` to the host the deployed app uses, and `DEV_DATABASE_HOST` to the dev database's direct host.
 3. Run `npm run db:test:migrate`, then `npm run db:test:roles -- --rotate`. Put the printed URL in `.env` as `TEST_DATABASE_URL`. This rotates the app role's password on the test branch only.
 
 After adding a migration, run `npm run db:test:migrate` as well as `npm run db:migrate`. If a crashed run left rows behind, `npm run db:test:reset` empties the test tables, keeping audit rows and the leave catalog.
@@ -121,11 +142,12 @@ After adding a migration, run `npm run db:test:migrate` as well as `npm run db:m
 
 | Variable | Required | Purpose |
 | --- | --- | --- |
-| `DATABASE_URL` | Yes | Pooled connection as `avanza_hrms_app`. Used by the app, jobs, seed, and tests. Printed by `npm run db:roles`. Never the owner role. |
-| `DIRECT_URL` | For migrations | Direct connection (no `-pooler`) as the owner `avanza_hrms_owner`. Used only by Prisma migrate and `npm run db:roles`. Not needed on Vercel. Replaces `DATABASE_URL_UNPOOLED`. |
+| `DATABASE_URL` | Yes | Pooled connection as `avanza_hrms_app`. Locally this is the dev database. Used by the app, jobs, and seed. Printed by `npm run db:roles`. Never the owner role. On Vercel this is the `main` branch database, not the dev database. |
+| `DIRECT_URL` | For migrations | Direct connection (no `-pooler`) as the owner `avanza_hrms_owner`. Locally this is the dev database. Used only by Prisma migrate and `npm run db:roles`. Not needed on Vercel. Replaces `DATABASE_URL_UNPOOLED`. |
+| `DEV_DATABASE_HOST` | For `npm test` | Direct host of the dev database. The test runner refuses to run against it. |
 | `TEST_DATABASE_URL` | For `npm test` | Pooled connection as `avanza_hrms_app` to the test database (`avanza_hrms_test` on the Neon `test` branch). Printed by `npm run db:test:roles`. |
 | `TEST_DIRECT_URL` | For `npm test` | Direct connection as the owner to the test database. Used by `db:test:*` commands, the leftover check, and test cleanup of rows the app role cannot delete. |
-| `PRODUCTION_DATABASE_HOST` | For `npm test` | Host of the database the deployed app uses. The test runner refuses to run against it. |
+| `PRODUCTION_DATABASE_HOST` | For local dev and `npm test` | Direct host of the database the deployed app uses. `npm test` refuses it. So do `npm run dev` and migration commands when `NODE_ENV` is not `production`. |
 | `AUTH_SECRET` | Yes | Auth.js secret. Generate one with `npx auth secret`. |
 | `AUTH_URL` | No | Public app URL. Defaults to `http://localhost:3000`. Use `https://` in production so the session cookie is marked Secure. |
 | `AUTH_ALLOWED_EMAIL_DOMAIN` | Yes | Company email domain. Sign-in is rejected unless the address is exactly `@this value` (subdomains do not match). If this is unset, sign-in fails closed. |
@@ -150,9 +172,9 @@ Copy `.env.example` to `.env`. Do not commit `.env`.
 | Place | Git | What belongs there |
 | --- | --- | --- |
 | `.env.example` | Tracked | Names, with secrets left empty. Copy this to `.env`. |
-| `.env` | Local only | Every secret and connection string used on your machine: `DATABASE_URL`, `DIRECT_URL`, `AUTH_SECRET`, `AUTH_DEV_PASSWORD`, OAuth secrets, and `EMPLOYEE_DATA_KEY`. |
+| `.env` | Local only | Secrets for this machine, including the dev database (`DATABASE_URL`, `DIRECT_URL`), the test database, `DEV_DATABASE_HOST`, `PRODUCTION_DATABASE_HOST`, `AUTH_SECRET`, `AUTH_DEV_PASSWORD`, OAuth secrets, and `EMPLOYEE_DATA_KEY`. |
 | `.env.production` | Tracked | Non-secret production defaults only: `AUTH_DEV_LOGIN=false` and `AUTH_URL`. Next.js loads this file when `NODE_ENV` is `production`. |
-| Vercel environment variables | Not in git | Production secrets: `DATABASE_URL` (pooled `avanza_hrms_app`), `AUTH_SECRET`, `AUTH_ALLOWED_EMAIL_DOMAIN`, OAuth client secrets, and `EMPLOYEE_DATA_KEY`. Do not set `AUTH_DEV_PASSWORD`, `AUTH_DEV_LOGIN`, or `DIRECT_URL`. Vercel values override `.env.production`. |
+| Vercel environment variables | Not in git | The deployed database, which is Neon branch `main`, database `avanza_hrms`: `DATABASE_URL` (pooled `avanza_hrms_app`), plus `AUTH_SECRET`, `AUTH_ALLOWED_EMAIL_DOMAIN`, OAuth client secrets, and `EMPLOYEE_DATA_KEY`. Do not set the dev or test URLs, `AUTH_DEV_PASSWORD`, `AUTH_DEV_LOGIN`, or `DIRECT_URL`. Vercel values override `.env.production`. |
 
 `.env.vercel` is a local scratch copy. It is gitignored, and Next.js does not load it.
 
@@ -182,14 +204,14 @@ Microsoft Entra ID:
 
 | Command | Purpose |
 | --- | --- |
-| `npm run dev` | Start the dev server |
+| `npm run dev` | Start the dev server. Refuses the production database host unless `NODE_ENV` is `production`. |
 | `npm run build` | Production build |
 | `npm run start` | Run the production server |
 | `npm run lint` | Run ESLint |
 | `npm run db:generate` | Generate the Prisma client |
 | `npm run db:up` | Start the local Postgres cluster and ensure the owner role `avanza_hrms_owner` exists |
 | `npm run db:down` | Stop the local Postgres cluster |
-| `npm run db:migrate` | Create and apply a dev migration (as the owner, via `DIRECT_URL`) |
+| `npm run db:migrate` | Create and apply a migration on the dev database (as the owner, via `DIRECT_URL`). Refuses the production host unless `NODE_ENV` is `production`. |
 | `npm run db:roles` | Turn on login for `avanza_hrms_app`, print its `DATABASE_URL`, and check its `audit_log` privileges. `-- --rotate` sets a new password. |
 | `npm run db:seed` | Create the bootstrap Super Admin if that email is missing, and insert leave types if they are missing |
 | `npm run db:studio` | Open Prisma Studio |
@@ -242,9 +264,11 @@ prisma/seed.ts          Bootstrap Super Admin and leave types
 prisma/migrations/      SQL migrations, including the append-only grants
 prisma7.config.ts       Prisma 7 config
 scripts/dev-postgres.mjs  Local Postgres start/stop
+scripts/db-host-guard.mjs  Refuses the production host when NODE_ENV is not production
+scripts/assert-dev-database.mjs  Runs dev and db:migrate only after that check
 scripts/db-roles.mjs    App role login, password, and privilege check
 scripts/run-tests.mjs   npm test: guard, test run, leftover check
-scripts/test-db-guard.mjs  Refuses anything but a separate _test database
+scripts/test-db-guard.mjs  Refuses the dev host, the production host, and any database not ending in _test
 src/test/fixtures.ts    Per-test cleanup (trackTestData)
 docs/PROGRESS.md        Build checklist
 ```
@@ -404,3 +428,8 @@ The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:300
 - New permission `attendance.manage` (HR Admin, Super Admin) for `/attendance`, overrides, Settings → Shifts, and locked months. Managers see direct reports at `/my-team/attendance`.
 - `attendance_events` is append-only, enforced by grants and triggers. Employees have a new `exitDate`, set when status changes to Exited and backfilled for existing exits.
 - No new environment variables. The test guard now compares against the original dev URLs, so `db:test:reset` works again.
+
+### 2026-10-07 — Separate dev database
+
+- Local `.env` `DATABASE_URL` and `DIRECT_URL` point at the Neon branch `dev`, database `avanza_hrms_dev` (empty, then migrated). Vercel and `.env.vercel` stay on branch `main`, database `avanza_hrms`.
+- New env var `DEV_DATABASE_HOST`. `npm test` refuses that host and `PRODUCTION_DATABASE_HOST`. `npm run dev` and migration commands refuse the production host when `NODE_ENV` is not `production`.

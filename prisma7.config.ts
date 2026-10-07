@@ -1,5 +1,11 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
+import { assertNotProductionHost } from "./scripts/db-host-guard.mjs";
+
+// `prisma generate` does not connect. Migration commands, seed, and studio do.
+// Production (NODE_ENV=production) may use the production host, which is what Vercel does.
+const prismaCommand = process.argv[2];
+if (prismaCommand !== "generate") assertNotProductionHost();
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
