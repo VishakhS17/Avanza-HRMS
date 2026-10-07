@@ -286,7 +286,8 @@ Run `npm run jobs:attendance-daily` every night after 00:30 IST. A day is comput
 src/proxy.ts            Route protection (Next.js proxy). Public: /login and /api/auth
 src/app/login/          Sign-in page and the dev-only password form
 src/app/api/auth/       Auth.js route handler
-src/app/(app)/          Signed-in routes and the app-shell layout
+src/app/(app)/          Signed-in routes and the app-shell layout, including Home
+src/app/(app)/reports/     Role-scoped reports and CSV export
 src/app/(app)/people/      HR employee list, create, and detail
 src/app/(app)/directory/   Company directory
 src/app/(app)/my-team/     Direct reports and the team leave calendar
@@ -307,6 +308,7 @@ src/app/(app)/documents/   HR document list, upload, and detail (versions, assig
 src/app/api/documents/[id]/file/  Checks access, then redirects to a 60-second signed link
 src/app/api/storage/local/  Serves local-disk files from a signed token (dev only)
 src/lib/storage/        Storage interface, local and S3 adapters, file validation
+src/components/dashboard/  Home widget frame
 src/components/attendance/  Punch card, calendar, month and date navigation
 src/components/documents/  Shared document form helpers
 scripts/leave-accrual.ts  Monthly and annual accrual job
@@ -317,7 +319,7 @@ src/components/shared/  PageHeader, DataTable, StatusBadge, EmptyState, ConfirmD
 src/components/ui/      shadcn/ui primitives
 src/lib/auth.ts         Auth.js config
 src/lib/permissions.ts  Permission map and can()
-src/lib/services/       Business logic, including audit, sessions, and users
+src/lib/services/       Business logic, including audit, sessions, users, dashboards, and reports
 prisma/schema.prisma    Users, employees, leave, holidays, approvals, attendance, and documents
 prisma/seed.ts          Bootstrap Super Admin and leave types
 scripts/seed-handtest.ts  Dev-only hand-test sample data (npm run seed:handtest)
@@ -344,10 +346,10 @@ Every user is an Employee. Roles are stored on the user and always include `EMPL
 
 | Action | Who |
 | --- | --- |
-| Home, Inbox, My Space, Directory | Every active user |
+| Home, Inbox, My Space, Directory | Every active user. Home widgets match the role: employees see their own actions, managers also see their team, HR Admin and Super Admin also see company figures. |
 | My Team | Manager, HR Admin, Super Admin |
 | People | HR Admin, Super Admin |
-| Reports | Manager (direct reports), HR Admin, Super Admin |
+| Reports | Manager (direct reports only), HR Admin, Super Admin (everyone) |
 | Settings | HR Admin, Super Admin |
 | Settings → Organization | HR Admin, Super Admin |
 | Settings → Audit log | HR Admin, Super Admin |
@@ -361,7 +363,7 @@ Every user is an Employee. Roles are stored on the user and always include `EMPL
 | My Space → Documents (own files and files shared by HR) | Every active user |
 | Documents (`/documents`): upload, assign, versions, acknowledgements, remove (`documents.manage`) | HR Admin, never on their own record except Policies |
 
-A role that fails a page check is redirected to `/forbidden`. `/settings/audit-log/export` and `/api/*` return JSON `403`.
+A role that fails a page check is redirected to `/forbidden`. `/settings/audit-log/export`, `/reports/export`, and `/api/*` return JSON `403`.
 
 Sessions are stored in the database. Each request loads the user and rejects the session when the user is inactive, the session is expired, or it has been idle too long. Deactivation deletes that user's sessions in the same transaction, so the next request is signed out. An active session also ends after 7 days. Admin roles idle out after 15 minutes by default. Other roles idle out after 8 hours. Both are env-configurable and are not a cron job.
 
@@ -446,9 +448,15 @@ await db.$transaction(async (tx) => {
 });
 ```
 
-Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. Leave and holidays write `LEAVE_REQUESTED`, `LEAVE_APPROVED`, `LEAVE_REJECTED`, `LEAVE_CANCELLED`, `LEAVE_BALANCE_ADJUSTED`, `LEAVE_ACCRUED`, `LEAVE_CARRY_FORWARD`, `LEAVE_REVERSED`, `HOLIDAY_CREATED`, and `HOLIDAY_UPDATED`. Attendance writes `ATTENDANCE_CHECKED_IN`, `ATTENDANCE_CHECKED_OUT`, `ATTENDANCE_RECORDED` (only when a computed record changes), `ATTENDANCE_OVERRIDDEN`, `ATTENDANCE_REGULARIZATION_REQUESTED`, `ATTENDANCE_REGULARIZATION_APPROVED`, `ATTENDANCE_REGULARIZATION_REJECTED`, `SHIFT_CREATED`, and `SHIFT_UPDATED`. Documents write `DOCUMENT_UPLOADED`, `DOCUMENT_VERSION_ADDED`, `DOCUMENT_UPDATED` (details or visibility), `DOCUMENT_ASSIGNED`, `DOCUMENT_REMOVED`, `DOCUMENT_ACKNOWLEDGED`, and `DOCUMENT_VIEWED` (each download in every category except Policies). There is no update or delete helper. The app role `avanza_hrms_app` has only `SELECT` and `INSERT` on `audit_log`. `UPDATE`, `DELETE`, and `TRUNCATE` are revoked from it and from `PUBLIC`. A trigger also rejects update and delete for any role, the owner included. See Database roles.
+Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. Leave and holidays write `LEAVE_REQUESTED`, `LEAVE_APPROVED`, `LEAVE_REJECTED`, `LEAVE_CANCELLED`, `LEAVE_BALANCE_ADJUSTED`, `LEAVE_ACCRUED`, `LEAVE_CARRY_FORWARD`, `LEAVE_REVERSED`, `HOLIDAY_CREATED`, and `HOLIDAY_UPDATED`. Attendance writes `ATTENDANCE_CHECKED_IN`, `ATTENDANCE_CHECKED_OUT`, `ATTENDANCE_RECORDED` (only when a computed record changes), `ATTENDANCE_OVERRIDDEN`, `ATTENDANCE_REGULARIZATION_REQUESTED`, `ATTENDANCE_REGULARIZATION_APPROVED`, `ATTENDANCE_REGULARIZATION_REJECTED`, `SHIFT_CREATED`, and `SHIFT_UPDATED`. Documents write `DOCUMENT_UPLOADED`, `DOCUMENT_VERSION_ADDED`, `DOCUMENT_UPDATED` (details or visibility), `DOCUMENT_ASSIGNED`, `DOCUMENT_REMOVED`, `DOCUMENT_ACKNOWLEDGED`, and `DOCUMENT_VIEWED` (each download in every category except Policies). Report CSV downloads write `REPORT_EXPORTED`. There is no update or delete helper. The app role `avanza_hrms_app` has only `SELECT` and `INSERT` on `audit_log`. `UPDATE`, `DELETE`, and `TRUNCATE` are revoked from it and from `PUBLIC`. A trigger also rejects update and delete for any role, the owner included. See Database roles.
 
 The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:3000/settings/audit-log). Filter by date (IST calendar days), actor, action, and entity. Results are paged at 25 rows. CSV export downloads the current filter, up to 5,000 rows. HR Admin and Super Admin can open it. Other roles cannot, including by calling the export URL directly.
+
+## Home and reports
+
+Home is the signed-in landing page. The check-in card, leave balances, pending leave, next holidays, and document acknowledgements are on every Home. Each block links to My Space. Managers also see pending approvals, who is out today and this week, team attendance today, and missing punches, limited to current direct reports, with links to Inbox and My Team. HR Admin and Super Admin also see headcount, this month's joiners and exits, today's attendance summary, and pending HR actions, with links to People, Attendance, Leave, Documents, and Inbox.
+
+Reports are at [http://localhost:3000/reports](http://localhost:3000/reports). Choose a report, filter, view the table, and export CSV. The four reports are headcount by department, location, or status; daily attendance; monthly attendance per employee; and leave balances. Managers see only their current direct reports in every report and in the CSV. HR Admin and Super Admin see everyone. Exporting writes `REPORT_EXPORTED` with the filters and row count. Employees cannot open `/reports` or `/reports/export`.
 
 ## Changelog
 
@@ -548,3 +556,9 @@ The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:300
 - Private storage behind an S3-compatible interface, with a local-disk adapter for development. Downloads redirect to 60-second signed links. PDF, PNG, and JPEG up to 4 MB, checked by content. No malware scanning yet.
 - New env vars: `STORAGE_DRIVER`, `STORAGE_LOCAL_DIR`, `STORAGE_SIGNING_SECRET`, `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`, `S3_FORCE_PATH_STYLE`. Vercel needs `STORAGE_DRIVER=s3` and a bucket before uploads work there. No new commands or scheduled jobs.
 - `npm run db:migrate` fails on its shadow database. New migrations are generated with `prisma migrate diff` and applied with `migrate deploy` (see Test database).
+
+### 2026-10-07 — Dashboards and reports
+
+- Home is role-aware. Employee widgets cover check-in, leave, holidays, and document acknowledgements. Managers also see their team. HR Admin and Super Admin also see company headcount, joiners and exits, today's attendance, and pending HR actions. Every widget links to the page that acts on it.
+- `/reports` has headcount, daily attendance, monthly attendance, and leave balances, with filters and CSV export. Managers are limited to current direct reports. CSV export writes `REPORT_EXPORTED`.
+- No new environment variables, commands, or scheduled jobs. No new tables.

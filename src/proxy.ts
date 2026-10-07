@@ -7,7 +7,11 @@ function isPublic(pathname: string): boolean {
 }
 
 function refusesWithStatus(pathname: string): boolean {
-  return pathname.startsWith("/api/") || pathname.startsWith("/settings/audit-log/export");
+  return (
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/settings/audit-log/export") ||
+    pathname.startsWith("/reports/export")
+  );
 }
 
 export async function proxy(request: NextRequest) {

@@ -42,7 +42,7 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - [x] 5. Leave, holidays, approvals, and inbox
 - [x] 6. Attendance and regularization
 - [x] 7. My Space: profile and documents
-- [ ] 8. Reports
+- [x] 8. Dashboards and reports
 - [ ] 9. Settings
 
 ## Step 1 notes
@@ -125,3 +125,9 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - Storage is `src/lib/storage` (local disk for dev and tests, S3-compatible for deployment, provider not chosen). Downloads go through `/api/documents/{id}/file`, which audits non-Policies views and redirects to a 60-second signed link. PDF, PNG, and JPEG up to 4 MB, checked by content.
 - Not built: malware scanning, expiry alerts, and email notifications. Vercel needs `STORAGE_DRIVER=s3` and a bucket. The `main` (production) database has not been migrated.
 - `prisma migrate dev` fails on its shadow database, so this migration was generated with `prisma migrate diff` and applied with `migrate deploy`. See the README.
+
+## Step 8 notes
+
+- Home is role-aware. Every user gets check-in, top paid leave balances, pending leave, the next three holidays, and document acknowledgements. Managers also get pending approvals, who is out, team attendance today, and missing punches, each limited to current direct reports. HR Admin and Super Admin also get company headcount, this month's joiners and exits, today's attendance summary, and pending HR actions. Every widget links to the page that acts on it.
+- `/reports` covers headcount (by department, location, or status), daily attendance, monthly attendance per employee, and leave balances. Filters, the table, and CSV export share `src/lib/services/reports.ts`. Managers see only direct reports. CSV writes `REPORT_EXPORTED`. `/reports/export` returns JSON 403 when the caller cannot view reports.
+- No new tables, environment variables, or scheduled jobs. Reports read existing employee, leave, and attendance rows.

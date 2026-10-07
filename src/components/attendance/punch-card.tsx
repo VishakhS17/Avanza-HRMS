@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useActionState } from "react";
 import { punchAction, type AttendanceActionState } from "@/app/(app)/my-space/attendance/actions";
 import { FormField } from "@/components/shared/form-field";
@@ -58,6 +59,9 @@ export function PunchCard({ status }: { status: PunchStatus }) {
       ) : null}
       {state.error ? <p className="mt-2 text-sm text-destructive">{state.error}</p> : null}
       <p className="mt-2 text-xs text-muted-foreground">The server clock records the time. Missed punches are fixed by a regularization.</p>
+      <Link href="/my-space/attendance" className="mt-3 inline-block text-sm font-medium text-secondary hover:underline">
+        Open attendance
+      </Link>
     </section>
   );
 }

@@ -1297,6 +1297,16 @@ export async function listTeamAttendance(actorId: string, dateParam?: string) {
   return { date, rows };
 }
 
+/** Live daily rows for a known set of employees. Callers must already have scoped the ids. */
+export async function listAttendanceRowsForEmployees(
+  employeeIds: readonly string[],
+  date: string,
+  now = new Date(),
+): Promise<DailyAttendanceRow[]> {
+  if (employeeIds.length === 0) return [];
+  return dailyRows(date, { employeeIds }, now);
+}
+
 export async function listDailyAttendance(
   actorId: string,
   params: { date?: string; locationId?: string; departmentId?: string; status?: string },
