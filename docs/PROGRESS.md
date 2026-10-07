@@ -95,6 +95,14 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - Vercel keeps using branch `main`, database `avanza_hrms`. `.env.vercel` is unchanged.
 - `DEV_DATABASE_HOST` is the dev direct host. `npm test` refuses it and `PRODUCTION_DATABASE_HOST`. `npm run dev` and migration commands refuse the production host when `NODE_ENV` is not `production`.
 
+## Hand-test data (dev only)
+
+- `npm run seed:handtest` creates Hand-test Operations, Hand-test Associate, Hand-test Depot (General shift), and `HT-MGR`, `HT-A` (reports to `HT-MGR`), and `HT-B` on `avanza.example`. All three joined 30 days before the first run. It goes through the organization and employee services as the bootstrap admin, so the audit rows are real. It can be re-run safely.
+- The guard (`scripts/handtest-guard.mjs`) refuses production `NODE_ENV`, the production and test hosts, any database other than `avanza_hrms_dev`, and a non-example email domain. Tests are in `src/test/handtest-guard.test.ts`.
+- `HT-B` has no manager because the bootstrap admin has no employee record and `createEmployee` always creates a new user. Approvals for `HT-B` and `HT-MGR` fall back to the bootstrap admin.
+- First run on 2026-10-07: the attendance job ran for 2026-10-02 to 2026-10-06. That gave 9 Absent days (Oct 2, 5, 6 per user) and 6 weekly offs. No punches were created.
+- The dev and test branches still hold a leftover `avanza_hrms` database. It is to be dropped in the Neon Console.
+
 ## Test database
 
 - `npm test` uses the Neon branch `test`, database `avanza_hrms_test` (`TEST_DATABASE_URL` and `TEST_DIRECT_URL`). The guard refuses production (`NODE_ENV`, `PRODUCTION_DATABASE_HOST`), the dev host (`DEV_DATABASE_HOST`), and any database name not ending in `_test`.

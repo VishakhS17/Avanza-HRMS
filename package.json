@@ -11,6 +11,7 @@
     "db:generate": "prisma generate",
     "db:migrate": "node scripts/assert-dev-database.mjs prisma migrate dev",
     "db:seed": "prisma db seed",
+    "seed:handtest": "node scripts/assert-handtest-database.mjs tsx scripts/seed-handtest.ts",
     "db:roles": "node scripts/db-roles.mjs",
     "db:test:migrate": "node scripts/with-test-db.mjs npx prisma migrate deploy",
     "db:test:roles": "node scripts/with-test-db.mjs node scripts/db-roles.mjs",

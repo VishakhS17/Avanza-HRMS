@@ -47,7 +47,7 @@ Three databases in the Neon project Avanza HRMS. Local development does not use 
 
 | Database | Neon branch | What it holds | Env file |
 | --- | --- | --- | --- |
-| `avanza_hrms_dev` | `dev` | Empty apart from migrations. Local app, seed, and `npm run db:migrate`. | `.env`: `DATABASE_URL` (app role, pooled host) and `DIRECT_URL` (owner role, direct host). `DEV_DATABASE_HOST` is that direct host. |
+| `avanza_hrms_dev` | `dev` | Migrations, the bootstrap admin, and the optional hand-test sample data. Local app, seed, and `npm run db:migrate`. | `.env`: `DATABASE_URL` (app role, pooled host) and `DIRECT_URL` (owner role, direct host). `DEV_DATABASE_HOST` is that direct host. |
 | `avanza_hrms_test` | `test` | Same migrations. `npm test` only. | `.env`: `TEST_DATABASE_URL` and `TEST_DIRECT_URL`. |
 | `avanza_hrms` | `main` | The database the deployed app uses today, and the future production database. | Vercel environment variable `DATABASE_URL` (app role, pooled host). `.env.vercel` is a local scratch copy of that and is not loaded by Next.js. |
 
@@ -184,6 +184,33 @@ The password form is shown only when `NODE_ENV` is not `production`, `AUTH_DEV_L
 
 There is no self-signup. Google, Microsoft, and the dev form all reject the sign-in unless a matching `ACTIVE` user already exists on the company domain. The Auth.js adapter refuses to create a user during sign-in.
 
+## Hand-testing
+
+`npm run seed:handtest` adds sample data to the dev database through the normal services, so each row has its usual audit entry. Run `npm run db:seed` first. The script acts as the bootstrap admin. Running it again creates nothing new and changes nothing that exists.
+
+It refuses to run when `NODE_ENV` is `production`, when `PRODUCTION_DATABASE_HOST` is unset, when `DATABASE_URL` or `DIRECT_URL` uses the production host or the `TEST_DATABASE_URL` or `TEST_DIRECT_URL` host, when either names a database other than `avanza_hrms_dev`, or when `AUTH_ALLOWED_EMAIL_DOMAIN` is not a reserved example domain such as `avanza.example`.
+
+It creates the department Hand-test Operations, the designation Hand-test Associate, and the location Hand-test Depot with its General shift (09:30–18:30, Saturday and Sunday off). It also creates three full-time employees who joined 30 days before the first run, each with an active user:
+
+| Code | Sign-in email | Reports to | Approvals go to |
+| --- | --- | --- | --- |
+| `HT-MGR` | `handtest.manager@avanza.example` | Nobody | The bootstrap admin |
+| `HT-A` | `handtest.employee.a@avanza.example` | `HT-MGR` | `HT-MGR` |
+| `HT-B` | `handtest.employee.b@avanza.example` | Nobody | The bootstrap admin |
+
+The bootstrap admin has no employee record, so nobody can report to that account. An employee with no manager has leave and regularization approvals routed to the earliest active HR Admin, then the earliest active Super Admin. On the dev database that is the bootstrap admin. `HT-MGR` gets the Manager role from having `HT-A` as a direct report.
+
+To get past days to correct, run the attendance job for each of the last 5 days. The script does not create punches, so working days come out Absent:
+
+```powershell
+node scripts/assert-handtest-database.mjs   # same guard, check only. Stop if it refuses.
+5..1 | ForEach-Object { npm run jobs:attendance-daily -- --date (Get-Date).AddDays(-$_).ToString("yyyy-MM-dd") }
+```
+
+This uses the machine's local date, which must be IST. Regularization accepts only the last 7 days, so run it again on a later day to get fresh dates.
+
+To sign in as anyone, including the bootstrap admin (`AUTH_BOOTSTRAP_ADMIN_EMAIL`), open `/login` and use the Password form. Enter the user's email and the shared password from `AUTH_DEV_PASSWORD` in `.env`. The form appears when `AUTH_DEV_LOGIN` is `true` and `AUTH_DEV_PASSWORD` is set. Sign out from the top bar to switch users. Admin sessions idle out after 15 minutes.
+
 ## SSO and MFA
 
 MFA is enforced at the identity provider, not in this app. Turn it on for the groups that hold Super Admin and HR Admin before those people use SSO.
@@ -214,6 +241,7 @@ Microsoft Entra ID:
 | `npm run db:migrate` | Create and apply a migration on the dev database (as the owner, via `DIRECT_URL`). Refuses the production host unless `NODE_ENV` is `production`. |
 | `npm run db:roles` | Turn on login for `avanza_hrms_app`, print its `DATABASE_URL`, and check its `audit_log` privileges. `-- --rotate` sets a new password. |
 | `npm run db:seed` | Create the bootstrap Super Admin if that email is missing, and insert leave types if they are missing |
+| `npm run seed:handtest` | Dev database only. Add the hand-test department, location, and three sample users through the services (see Hand-testing). Running it again changes nothing. |
 | `npm run db:studio` | Open Prisma Studio |
 | `npm run jobs:leave-accrual` | Credit monthly and annual leave for the current Asia/Kolkata month or year. Running it again does not double-credit. |
 | `npm run jobs:leave-carry-forward` | Forfeit leave above each type's carry cap for a completed calendar year. In January it uses the previous year. In other months pass `--year YYYY`. Running it again does not forfeit twice. |
@@ -261,6 +289,8 @@ src/lib/permissions.ts  Permission map and can()
 src/lib/services/       Business logic, including audit, sessions, and users
 prisma/schema.prisma    Users, employees, leave, holidays, approvals, and attendance
 prisma/seed.ts          Bootstrap Super Admin and leave types
+scripts/seed-handtest.ts  Dev-only hand-test sample data (npm run seed:handtest)
+scripts/handtest-guard.mjs  Refuses hand-test seeding outside avanza_hrms_dev
 prisma/migrations/      SQL migrations, including the append-only grants
 prisma7.config.ts       Prisma 7 config
 scripts/dev-postgres.mjs  Local Postgres start/stop
@@ -433,3 +463,9 @@ The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:300
 
 - Local `.env` `DATABASE_URL` and `DIRECT_URL` point at the Neon branch `dev`, database `avanza_hrms_dev` (empty, then migrated). Vercel and `.env.vercel` stay on branch `main`, database `avanza_hrms`.
 - New env var `DEV_DATABASE_HOST`. `npm test` refuses that host and `PRODUCTION_DATABASE_HOST`. `npm run dev` and migration commands refuse the production host when `NODE_ENV` is not `production`.
+
+### 2026-10-07 — Hand-test seed
+
+- New command `npm run seed:handtest`. It adds one department, designation, and location, plus three sample users on `avanza.example`, to the dev database through the services. Running it again changes nothing.
+- It refuses production `NODE_ENV`, the production and test hosts, any database other than `avanza_hrms_dev`, and a non-example email domain.
+- No auth change. The dev password form already signs in any active user on the company domain. No new environment variables or scheduled jobs.
