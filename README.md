@@ -43,7 +43,7 @@ The app, the jobs, and the seed read `DATABASE_URL`, which connects as the restr
 
 ## Databases
 
-Three databases in the Neon project Avanza HRMS. Local development does not use the database Vercel uses.
+Three databases in the Neon project Avanza HRMS. Local development does not use the database Vercel uses. Before the pilot, production and the future demo each need their own Neon project. The production project must be on a paid plan: the Free plan keeps 6 hours of history, which is too short to restore from. The demo database is not built yet. The test database can stay on the `test` branch of the development project.
 
 | Database | Neon branch | What it holds | Env file |
 | --- | --- | --- | --- |
@@ -173,7 +173,7 @@ If a crashed run left rows behind, `npm run db:test:reset` empties the test tabl
 | `AUTH_GOOGLE_SECRET` | With Google | Google OAuth client secret. |
 | `AUTH_MICROSOFT_ENTRA_ID_ID` | No | Entra application (client) id. Leave blank to hide the Microsoft button. Callback: `{AUTH_URL}/api/auth/callback/microsoft-entra-id`. |
 | `AUTH_MICROSOFT_ENTRA_ID_SECRET` | With Microsoft | Entra client secret. |
-| `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | With Microsoft | Tenant issuer, for example `https://login.microsoftonline.com/{tenant-id}/v2.0`. Set this so personal Microsoft accounts cannot sign in. |
+| `AUTH_MICROSOFT_ENTRA_ID_ISSUER` | With Microsoft | One company tenant, for example `https://login.microsoftonline.com/{tenant-guid}/v2.0`. The Microsoft button stays hidden unless the value is that form. `common`, `organizations`, and `consumers` are rejected. |
 | `AUTH_DEV_LOGIN` | No | Local only. `true` shows the shared password form when `NODE_ENV` is not `production` and `AUTH_DEV_PASSWORD` is set. Production ignores this variable. |
 | `AUTH_DEV_PASSWORD` | For local password sign-in | Shared password that signs in an existing active user. It does not create accounts. Set it only in `.env`. Production ignores it. |
 | `AUTH_IDLE_TIMEOUT_MINUTES` | No | Idle timeout for non-admin roles. Default 480 (8 hours). Checked on each request. |
@@ -188,7 +188,9 @@ If a crashed run left rows behind, `npm run db:test:reset` empties the test tabl
 | `S3_ACCESS_KEY_ID` | With `s3` | Access key with put, get, and delete on that bucket only. |
 | `S3_SECRET_ACCESS_KEY` | With `s3` | Secret for that key. |
 | `S3_FORCE_PATH_STYLE` | No | `true` for providers that need path-style URLs, such as MinIO. Default `false`. |
-| `POSTGRES_BIN` | No | Optional path to the PostgreSQL `bin` directory used by `npm run db:up`. |
+| `BACKUP_DIR` | For `npm run db:backup` | Absolute directory outside this repository. The encrypted dump is written there. Not used by the app or by Vercel. |
+| `BACKUP_ENCRYPTION_KEY` | For `npm run db:backup` | Passphrase of at least 16 characters. It is not written into the dump. Keep it with the other secrets, outside git. |
+| `POSTGRES_BIN` | No | Optional path to the PostgreSQL `bin` directory used by `npm run db:up`. `pg_dump` and `pg_restore` must also be on `PATH` for backups. |
 
 Copy `.env.example` to `.env`. Do not commit `.env`.
 
@@ -197,7 +199,7 @@ Copy `.env.example` to `.env`. Do not commit `.env`.
 | Place | Git | What belongs there |
 | --- | --- | --- |
 | `.env.example` | Tracked | Names, with secrets left empty. Copy this to `.env`. |
-| `.env` | Local only | Secrets for this machine, including the dev database (`DATABASE_URL`, `DIRECT_URL`), the test database, `DEV_DATABASE_HOST`, `PRODUCTION_DATABASE_HOST`, `AUTH_SECRET`, `AUTH_DEV_PASSWORD`, OAuth secrets, `EMPLOYEE_DATA_KEY`, and `STORAGE_SIGNING_SECRET`. |
+| `.env` | Local only | Secrets for this machine, including the dev database (`DATABASE_URL`, `DIRECT_URL`), the test database, `DEV_DATABASE_HOST`, `PRODUCTION_DATABASE_HOST`, `AUTH_SECRET`, `AUTH_DEV_PASSWORD`, OAuth secrets, `EMPLOYEE_DATA_KEY`, `STORAGE_SIGNING_SECRET`, `BACKUP_DIR`, and `BACKUP_ENCRYPTION_KEY`. |
 | `.env.production` | Tracked | Non-secret production defaults only: `AUTH_DEV_LOGIN=false` and `AUTH_URL`. Next.js loads this file when `NODE_ENV` is `production`. |
 | Vercel environment variables | Not in git | The deployed database, which is Neon branch `main`, database `avanza_hrms`: `DATABASE_URL` (pooled `avanza_hrms_app`), plus `AUTH_SECRET`, `AUTH_ALLOWED_EMAIL_DOMAIN`, OAuth client secrets, `EMPLOYEE_DATA_KEY`, `STORAGE_DRIVER=s3`, and the `S3_*` variables. Do not set the dev or test URLs, `AUTH_DEV_PASSWORD`, `AUTH_DEV_LOGIN`, or `DIRECT_URL`. Vercel values override `.env.production`. |
 
@@ -207,7 +209,9 @@ Copy `.env.example` to `.env`. Do not commit `.env`.
 
 The password form is shown only when `NODE_ENV` is not `production`, `AUTH_DEV_LOGIN` is `true`, and `AUTH_DEV_PASSWORD` is set. Production hides the form and rejects the sign-in action even if those variables are set in `.env.production` or on Vercel. It signs in a user that already exists and is active. It does not create a user.
 
-There is no self-signup. Google, Microsoft, and the dev form all reject the sign-in unless a matching `ACTIVE` user already exists on the company domain. The Auth.js adapter refuses to create a user during sign-in.
+There is no self-signup. Google, Microsoft, and the dev form all reject the sign-in unless a matching `ACTIVE` user already exists on the company domain. OAuth also requires `email_verified` to be true. A missing claim is treated as not verified. The dev password form does not use that claim. The Auth.js adapter refuses to create a user during sign-in.
+
+Sign-in is limited in the database, so it still applies on Vercel. Five attempts per IP and five per email are allowed in a 15-minute window. The window starts at the first attempt and does not slide. A locked attempt returns the same message as a wrong password, and one `AUTH_LOGIN_LOCKED` audit row is written when the lockout starts. Later attempts in that window are refused with no further audit row. `/api/auth` allows 60 requests per IP in the same kind of window, so a normal OAuth redirect is not counted as a sign-in attempt. A blocked auth request returns `429` and `{ "error": "Sign-in was not accepted." }`.
 
 ## Hand-testing
 
@@ -248,9 +252,10 @@ Google Workspace:
 
 Microsoft Entra ID:
 
-1. Register an app, add the callback URL above, and set `AUTH_MICROSOFT_ENTRA_ID_ID`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, and `AUTH_MICROSOFT_ENTRA_ID_ISSUER` to that tenant.
-2. Create a Conditional Access policy that requires MFA for the groups assigned Super Admin and HR Admin.
-3. Leave personal Microsoft accounts out of that tenant. The issuer check is what keeps them out.
+1. Register an app in the company tenant, add the callback URL above, and set `AUTH_MICROSOFT_ENTRA_ID_ID`, `AUTH_MICROSOFT_ENTRA_ID_SECRET`, and `AUTH_MICROSOFT_ENTRA_ID_ISSUER` to `https://login.microsoftonline.com/{tenant-guid}/v2.0`. The Microsoft button is hidden if the issuer is missing, is not HTTPS, or is `common`, `organizations`, or `consumers`.
+2. Configure the ID token so `email` and `email_verified` are present and `email_verified` is true. A missing `email_verified` is treated as not verified, and sign-in is refused.
+3. Create a Conditional Access policy that requires MFA for the groups assigned Super Admin and HR Admin.
+4. Leave personal Microsoft accounts out of that tenant. The issuer check is what keeps them out. Linking still only attaches the provider to a user HR already created.
 
 ## Scripts
 
@@ -268,22 +273,23 @@ Microsoft Entra ID:
 | `npm run db:seed` | Create the bootstrap Super Admin if that email is missing, and insert leave types if they are missing |
 | `npm run seed:handtest` | Dev database only. Add the hand-test department, location, and three sample users through the services (see Hand-testing). Running it again changes nothing. |
 | `npm run db:studio` | Open Prisma Studio |
-| `npm run jobs:leave-accrual` | Credit monthly and annual leave for the current Asia/Kolkata month or year. Running it again does not double-credit. |
-| `npm run jobs:leave-carry-forward` | Forfeit leave above each type's carry cap for a completed calendar year. In January it uses the previous year. In other months pass `--year YYYY`. Running it again does not forfeit twice. |
-| `npm run jobs:attendance-daily` | Compute daily attendance records from punches, leave, holidays, and the weekly off. It catches up from the latest stored day up to yesterday (IST). `-- --date YYYY-MM-DD` recomputes one past day. Running it again changes nothing. |
+| `npm run jobs:leave-accrual` | Credit monthly and annual leave for the current Asia/Kolkata month or year. Running it again does not double-credit. One employee's failure is logged and the rest continue. The process exits 1 if any employee failed. |
+| `npm run jobs:leave-carry-forward` | Forfeit leave above each type's carry cap for a completed calendar year. In January it uses the previous year. In other months pass `--year YYYY`. Running it again does not forfeit twice. A failure for one employee does not stop the others. The process exits 1 if any employee failed. |
+| `npm run jobs:attendance-daily` | Compute daily attendance records from punches, leave, holidays, and the weekly off. It catches up from the latest stored day up to yesterday (IST). `-- --date YYYY-MM-DD` recomputes one past day. Running it again changes nothing. A failure for one employee does not stop the others. The process exits 1 if any employee failed. |
+| `npm run db:backup` | Encrypted logical dump via `pg_dump` and `DIRECT_URL`. See Backups and restore. Not a Vercel cron. |
 | `npm test` | Run every `src/**/*.test.ts` file one at a time against the test database (see Test database), then check that no test rows remain |
 | `npm run db:test:migrate` | Apply migrations to the test database as its owner |
 | `npm run db:test:roles` | `db:roles` for the test database. Use `-- --rotate` to print a fresh `TEST_DATABASE_URL`. |
 | `npm run db:test:reset` | Empty the test database's tables, keeping audit rows and the leave catalog |
 
-Idle timeout and user status are checked on each request, not by a job. The two leave commands and the attendance command are the scheduled jobs. Run them from cron or Task Scheduler. They are not started by `npm run dev`.
+Idle timeout, the 7-day session cap, and user status are checked on each request, not by a job. The two leave commands and the attendance command are the scheduled jobs. Run them from cron or Task Scheduler on a machine that can reach the database. They are not started by `npm run dev`. Each employee is handled on its own. A thrown error is logged with that employee id, the run continues, and the process prints a summary and exits 1 if anything failed. A unique-key conflict on a rerun is not a failure. Schedule a retry when the exit code is 1.
 
 Run `npm run jobs:attendance-daily` every night after 00:30 IST. A day is computed only once every shift that started on it can no longer be checked out of (shift end plus 6 hours). Until then that employee's day is counted as deferred, and the next run picks it up. With night shifts, run it later in the morning, or run it twice. A missed night is caught up on the next run. The job skips days that were regularized or overridden, and it skips locked months. System jobs pass `actor: null` on the audit row. Mail is printed to the server console. There is no SMTP variable.
 
 ## Project structure
 
 ```text
-src/proxy.ts            Route protection (Next.js proxy). Public: /login and /api/auth
+src/proxy.ts            Route protection, security headers, and 401 JSON for unsigned /api/*. Public: /login and /api/auth
 src/app/login/          Sign-in page and the dev-only password form
 src/app/api/auth/       Auth.js route handler
 src/app/(app)/          Signed-in routes and the app-shell layout, including Home
@@ -314,6 +320,8 @@ src/components/documents/  Shared document form helpers
 scripts/leave-accrual.ts  Monthly and annual accrual job
 scripts/leave-carry-forward.ts  Year-end carry-forward job
 scripts/attendance-daily.ts  Nightly attendance job
+scripts/backup-database.mjs  Encrypted pg_dump (npm run db:backup)
+src/lib/security-headers.ts  CSP and the other response headers
 src/components/layout/  Sidebar, top bar, shell
 src/components/shared/  PageHeader, DataTable, StatusBadge, EmptyState, ConfirmDialog, FormField
 src/components/ui/      shadcn/ui primitives
@@ -363,9 +371,9 @@ Every user is an Employee. Roles are stored on the user and always include `EMPL
 | My Space → Documents (own files and files shared by HR) | Every active user |
 | Documents (`/documents`): upload, assign, versions, acknowledgements, remove (`documents.manage`) | HR Admin, never on their own record except Policies |
 
-A role that fails a page check is redirected to `/forbidden`. `/settings/audit-log/export`, `/reports/export`, and `/api/*` return JSON `403`.
+A role that fails a page check is redirected to `/forbidden`. A signed-in caller who fails `/settings/audit-log/export`, `/reports/export`, or `/api/*` gets JSON `403`. A request to `/api/*` with no session gets JSON `401` and `{ "error": "Unauthorized" }`, not the login page. `/login` and `/api/auth` stay public.
 
-Sessions are stored in the database. Each request loads the user and rejects the session when the user is inactive, the session is expired, or it has been idle too long. Deactivation deletes that user's sessions in the same transaction, so the next request is signed out. An active session also ends after 7 days. Admin roles idle out after 15 minutes by default. Other roles idle out after 8 hours. Both are env-configurable and are not a cron job.
+Sessions are stored in the database. Each request loads the user and rejects the session when the user is inactive, the session is past its expiry, the session is past 7 days from sign-in, or it has been idle too long. Activity updates `lastActiveAt` only. It does not move `expires` or the sign-in time, so using the app cannot stretch a session past 7 days. Deactivation deletes that user's sessions in the same transaction, so the next request is signed out. Admin roles idle out after 15 minutes by default. Other roles idle out after 8 hours. Both idle values are env-configurable. The 7-day cap is not. None of this is a cron job.
 
 A Super Admin cannot change their own roles or status. The last active Super Admin cannot be demoted, deactivated, or marked exited. Users and employees are not hard-deleted. An exited employee is signed out.
 
@@ -418,7 +426,7 @@ HR rights do not apply to an HR Admin's own record. On their own record an HR Ad
 
 ### Storage setup
 
-Local development needs only `STORAGE_SIGNING_SECRET` in `.env` (files go to `.data/storage`). Vercel has no persistent disk, so the deployed app needs `STORAGE_DRIVER=s3` and the `S3_*` variables. The provider is not chosen yet. Any S3-compatible service works: create a private bucket, an access key limited to that bucket, set the variables on Vercel, and redeploy. Until then, uploads on Vercel fail with a configuration error, and the rest of the app works.
+Local development needs only `STORAGE_SIGNING_SECRET` in `.env` (files go to `.data/storage`). Vercel has no persistent disk, so the deployed app needs `STORAGE_DRIVER=s3` and the `S3_*` variables. The provider is not chosen yet. Any S3-compatible service works. Create a private bucket, turn on Block Public Access, and turn on default encryption (SSE-S3 or SSE-KMS). Every upload from this app also sets `ServerSideEncryption: AES256`. Give the access key put, get, and delete on that bucket only, set the variables on Vercel, and redeploy. Until then, uploads on Vercel fail with a configuration error, and the rest of the app works. A database dump does not include these files. Keep bucket versioning, or a separate copy, if a deleted object must be recoverable.
 
 ## Rules
 
@@ -448,7 +456,9 @@ await db.$transaction(async (tx) => {
 });
 ```
 
-Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, and `AUTH_LOGIN_FAILED`. User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. Leave and holidays write `LEAVE_REQUESTED`, `LEAVE_APPROVED`, `LEAVE_REJECTED`, `LEAVE_CANCELLED`, `LEAVE_BALANCE_ADJUSTED`, `LEAVE_ACCRUED`, `LEAVE_CARRY_FORWARD`, `LEAVE_REVERSED`, `HOLIDAY_CREATED`, and `HOLIDAY_UPDATED`. Attendance writes `ATTENDANCE_CHECKED_IN`, `ATTENDANCE_CHECKED_OUT`, `ATTENDANCE_RECORDED` (only when a computed record changes), `ATTENDANCE_OVERRIDDEN`, `ATTENDANCE_REGULARIZATION_REQUESTED`, `ATTENDANCE_REGULARIZATION_APPROVED`, `ATTENDANCE_REGULARIZATION_REJECTED`, `SHIFT_CREATED`, and `SHIFT_UPDATED`. Documents write `DOCUMENT_UPLOADED`, `DOCUMENT_VERSION_ADDED`, `DOCUMENT_UPDATED` (details or visibility), `DOCUMENT_ASSIGNED`, `DOCUMENT_REMOVED`, `DOCUMENT_ACKNOWLEDGED`, and `DOCUMENT_VIEWED` (each download in every category except Policies). Report CSV downloads write `REPORT_EXPORTED`. There is no update or delete helper. The app role `avanza_hrms_app` has only `SELECT` and `INSERT` on `audit_log`. `UPDATE`, `DELETE`, and `TRUNCATE` are revoked from it and from `PUBLIC`. A trigger also rejects update and delete for any role, the owner included. See Database roles.
+Passwords, tokens, bank details, and government ID numbers are replaced with `[REDACTED]` before the row is stored. Action names live in `AUDIT_ACTIONS`. Auth writes `AUTH_LOGIN`, `AUTH_LOGOUT`, `AUTH_LOGIN_FAILED`, and `AUTH_LOGIN_LOCKED` (one row when a sign-in lockout starts, not one per blocked attempt). User admin writes `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_DEACTIVATED`, and `USER_REACTIVATED`. Employee changes write `EMPLOYEE_CREATED`, `EMPLOYEE_UPDATED`, `EMPLOYEE_STATUS_CHANGED`, and `SENSITIVE_FIELD_REVEALED`. Organization masters write `SETTINGS_UPDATED`. Leave and holidays write `LEAVE_REQUESTED`, `LEAVE_APPROVED`, `LEAVE_REJECTED`, `LEAVE_CANCELLED`, `LEAVE_BALANCE_ADJUSTED`, `LEAVE_ACCRUED`, `LEAVE_CARRY_FORWARD`, `LEAVE_REVERSED`, `HOLIDAY_CREATED`, and `HOLIDAY_UPDATED`. Attendance writes `ATTENDANCE_CHECKED_IN`, `ATTENDANCE_CHECKED_OUT`, `ATTENDANCE_RECORDED` (only when a computed record changes), `ATTENDANCE_OVERRIDDEN`, `ATTENDANCE_REGULARIZATION_REQUESTED`, `ATTENDANCE_REGULARIZATION_APPROVED`, `ATTENDANCE_REGULARIZATION_REJECTED`, `SHIFT_CREATED`, and `SHIFT_UPDATED`. Documents write `DOCUMENT_UPLOADED`, `DOCUMENT_VERSION_ADDED`, `DOCUMENT_UPDATED` (details or visibility), `DOCUMENT_ASSIGNED`, `DOCUMENT_REMOVED`, `DOCUMENT_ACKNOWLEDGED`, and `DOCUMENT_VIEWED` (each download in every category except Policies). Report CSV downloads write `REPORT_EXPORTED`. There is no update or delete helper. The app role `avanza_hrms_app` has only `SELECT` and `INSERT` on `audit_log`. `UPDATE`, `DELETE`, and `TRUNCATE` are revoked from it and from `PUBLIC`. A trigger also rejects update and delete for any role, the owner included. See Database roles.
+
+The client IP on an audit row comes from a header the platform sets. On Vercel that is the first address in `x-vercel-forwarded-for`. Elsewhere it is `x-real-ip`, and only when a trusted proxy in front of the app sets that header. `X-Forwarded-For` is ignored, because the browser can set it. If neither trusted header is present, the row stores no IP.
 
 The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:3000/settings/audit-log). Filter by date (IST calendar days), actor, action, and entity. Results are paged at 25 rows. CSV export downloads the current filter, up to 5,000 rows. HR Admin and Super Admin can open it. Other roles cannot, including by calling the export URL directly.
 
@@ -457,6 +467,83 @@ The viewer is at [http://localhost:3000/settings/audit-log](http://localhost:300
 Home is the signed-in landing page. The check-in card, leave balances, pending leave, next holidays, and document acknowledgements are on every Home. Each block links to My Space. Managers also see pending approvals, who is out today and this week, team attendance today, and missing punches, limited to current direct reports, with links to Inbox and My Team. HR Admin and Super Admin also see headcount, this month's joiners and exits, today's attendance summary, and pending HR actions, with links to People, Attendance, Leave, Documents, and Inbox.
 
 Reports are at [http://localhost:3000/reports](http://localhost:3000/reports). Choose a report, filter, view the table, and export CSV. The four reports are headcount by department, location, or status; daily attendance; monthly attendance per employee; and leave balances. Managers see only their current direct reports in every report and in the CSV. HR Admin and Super Admin see everyone. Exporting writes `REPORT_EXPORTED` with the filters and row count. Employees cannot open `/reports` or `/reports/export`.
+
+## Security headers
+
+Every response from the proxy sends `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Permissions-Policy` with camera, microphone, geolocation, payment, and USB disabled, and a Content-Security-Policy. The policy uses a per-request nonce for scripts (`strict-dynamic`) and, in production, for styles. `frame-ancestors 'none'` matches the frame denial. Production responses over HTTPS also send `upgrade-insecure-requests` and `Strict-Transport-Security` (`max-age=63072000; includeSubDomains`). Development adds `'unsafe-eval'` for scripts and `'unsafe-inline'` for styles so the dev server can run. The root layout calls `connection()` so pages render per request and Next.js can attach the nonce. Account menus and the mobile navigation still open under this policy. The browser console can report a blocked inline style from those components.
+
+## Backups and restore
+
+Neon history is not the backup. On the Free plan that history is 6 hours. The production project needs a paid plan with a longer window, and it still needs a logical dump stored outside Neon.
+
+`npm run db:backup` runs `pg_dump` (custom format, no owner, no privileges) through `DIRECT_URL`, encrypts the file with AES-256-GCM, and writes it under `BACKUP_DIR`. The passphrase is `BACKUP_ENCRYPTION_KEY` (at least 16 characters). The key is not stored in the file. `BACKUP_DIR` must be an absolute path outside this repository. The plaintext dump is deleted after encryption. A dump of the host in `PRODUCTION_DATABASE_HOST` requires `--production`.
+
+This does not run on Vercel. There is no `pg_dump` in a serverless function. Schedule it daily on a machine that has the PostgreSQL client tools, the production `DIRECT_URL`, and the backup passphrase. Example, once the production owner URL is in the environment for that job only:
+
+```powershell
+npm run db:backup -- --production
+```
+
+Decrypt when you are ready to restore. The output path must be absolute and outside the repository:
+
+```powershell
+node scripts/backup-database.mjs --decrypt D:\backups\avanza-hrms-avanza_hrms-20261011T023000Z.dump.enc --out D:\backups\restore.dump
+```
+
+The dump contains application-encrypted bank and ID values, and the other columns as stored, including address, phone, and date of birth. It does not contain the S3 document bytes.
+
+### Restore test
+
+Do this on a throwaway branch before any production restore, and again as a pre-pilot check.
+
+1. In the production Neon project, create a branch from the current production branch. Name it so it is obvious it is disposable, for example `restore-test-20261011`.
+2. Decrypt one daily dump to a path outside the repository.
+3. Restore onto that branch's database with `pg_restore --no-owner --no-acl` using the branch's direct owner URL. Do not restore onto `main`, `dev`, or `test`.
+4. Point a temporary `DATABASE_URL` (app role on that branch) at it and confirm a known employee, a leave balance, and a recent audit row match production.
+5. Delete the throwaway branch and the decrypted dump when the check passes.
+
+A real restore uses the same steps onto a new branch, then switches the Vercel `DATABASE_URL` to that branch's app-role URL after the check. Do not overwrite the live database in place.
+
+## Production deployment
+
+Deploy the app to Vercel. Apply schema changes from a machine that has `pg` client tools and the production owner URL, not from the Vercel build.
+
+1. Use a Neon project that is not the development project and not the future demo project. Put it on a paid plan before the pilot.
+2. Set `DIRECT_URL` in that shell to the production owner on the direct host. Run `npx prisma migrate deploy --config prisma7.config.ts`. Do not run `prisma migrate dev` or `prisma db push` against production.
+3. Run `npm run db:roles` against that same `DIRECT_URL`. Put the printed pooled app-role URL in Vercel as `DATABASE_URL`. The running app must not use the owner role.
+4. Set the other Vercel variables from the table above: `AUTH_SECRET`, `AUTH_URL` (`https://`), `AUTH_ALLOWED_EMAIL_DOMAIN`, the OAuth secrets, `EMPLOYEE_DATA_KEY`, `STORAGE_DRIVER=s3`, and the `S3_*` variables. Do not set `AUTH_DEV_LOGIN`, `AUTH_DEV_PASSWORD`, `DIRECT_URL`, `BACKUP_ENCRYPTION_KEY`, or the dev and test URLs.
+5. Deploy. `.env.production` in git only sets `AUTH_DEV_LOGIN=false` and `AUTH_URL`. Vercel overrides those.
+
+Rollback of an application change is a redeploy of the previous Vercel deployment. Do not edit a migration that has already been applied. If a migration is wrong, add a new migration that fixes it forward. If a migration destroyed data, restore the logical dump taken before that migration onto a new branch, check it, then point `DATABASE_URL` at that branch's app role and redeploy.
+
+## Pre-pilot checklist
+
+- Google or Microsoft SSO is configured for the company domain, and MFA is required for Super Admin and HR Admin at the identity provider.
+- Mail goes through a real provider. The app currently prints messages to the server console.
+- `STORAGE_DRIVER=s3`, the bucket has Block Public Access and default encryption, an upload and a download have been tested, and the access key cannot reach other buckets.
+- `jobs:leave-accrual`, `jobs:leave-carry-forward`, and `jobs:attendance-daily` are scheduled, and a failed run is visible (the process exits 1).
+- A daily `npm run db:backup` is scheduled outside Vercel, and a restore has been tested on a throwaway branch.
+- Two active HR Admin accounts exist, so one HR Admin's own documents can be handled by the other.
+- The production Neon project is on a paid plan with history longer than the Free plan's 6 hours, and it is a separate project from development and demo.
+
+## Known limitations
+
+- The audit log stores address, phone, and date of birth in clear text. Bank details, PAN, and government ID values are encrypted and are not copied into the audit row.
+- Marking an inbox notification read changes state and is not written to the audit log.
+- Uploads are not scanned for malware.
+- Decision and submission emails print to the console. There is no SMTP setting.
+- The demo database and its seed are a later step. They are not in this repository yet.
+
+## Troubleshooting
+
+- Sign-in says the database is not reachable: `DATABASE_URL` must be the app role, and `npm run db:migrate` (or `prisma migrate deploy` for an existing database) must have been applied.
+- `npm run db:migrate` fails while building a shadow database: do not edit the old migration. Generate the SQL with `prisma migrate diff` and apply it with `prisma migrate deploy`, as under Test database.
+- `npm run dev` or a migration command exits immediately: `DATABASE_URL` or `DIRECT_URL` is using `PRODUCTION_DATABASE_HOST`. Point them at the dev database.
+- The password form is missing: `NODE_ENV` is `production`, or `AUTH_DEV_LOGIN` / `AUTH_DEV_PASSWORD` is unset. Production never shows that form.
+- SSO returns to the login page with no new user: the address must already be an active user on `AUTH_ALLOWED_EMAIL_DOMAIN`, the provider must send `email_verified: true`, and the Microsoft issuer must be the company tenant GUID.
+- Repeated sign-in failures all look the same: that is the lockout. Wait 15 minutes from the first attempt in the window. There is one `AUTH_LOGIN_LOCKED` row, not one per try.
+- `npm run db:backup` cannot find `pg_dump`: install the PostgreSQL client tools and add their `bin` directory to `PATH`.
+- A production page is blank or a script is blocked: the Content-Security-Policy nonce is enforced. Check the browser console before loosening the policy.
 
 ## Changelog
 
@@ -562,3 +649,15 @@ Reports are at [http://localhost:3000/reports](http://localhost:3000/reports). C
 - Home is role-aware. Employee widgets cover check-in, leave, holidays, and document acknowledgements. Managers also see their team. HR Admin and Super Admin also see company headcount, joiners and exits, today's attendance, and pending HR actions. Every widget links to the page that acts on it.
 - `/reports` has headcount, daily attendance, monthly attendance, and leave balances, with filters and CSV export. Managers are limited to current direct reports. CSV export writes `REPORT_EXPORTED`.
 - No new environment variables, commands, or scheduled jobs. No new tables.
+
+### 2026-10-11 — Security review
+
+- Sign-in and `/api/auth` are rate-limited in `auth_rate_limits` (per IP and per email on sign-in). A lockout writes one `AUTH_LOGIN_LOCKED` row. The limit is in the database so it holds on Vercel.
+- Responses send HSTS (production), `nosniff`, `no-referrer`, `X-Frame-Options: DENY`, a locked-down Permissions-Policy, and a nonce Content-Security-Policy.
+- OAuth treats a missing `email_verified` as not verified. Microsoft is registered only when `AUTH_MICROSOFT_ENTRA_ID_ISSUER` is the company tenant.
+- A session ends 7 days after sign-in. Activity cannot move that deadline. Idle timeouts are unchanged.
+- Audit IPs use `x-vercel-forwarded-for` on Vercel, then `x-real-ip`. `X-Forwarded-For` is ignored.
+- The leave and attendance jobs keep going after one employee fails, log that failure, and exit 1 if any failed. Reruns stay idempotent.
+- S3 uploads set SSE-S3 (`AES256`). The bucket still needs default encryption and Block Public Access.
+- Unsigned `/api/*` returns JSON 401. New command `npm run db:backup` writes an encrypted `pg_dump` outside Neon. New env vars: `BACKUP_DIR`, `BACKUP_ENCRYPTION_KEY`.
+- Migration `20261010211500_auth_rate_limit_and_session_start` adds `sessions.createdAt` and `auth_rate_limits`.

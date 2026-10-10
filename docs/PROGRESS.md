@@ -43,7 +43,7 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - [x] 6. Attendance and regularization
 - [x] 7. My Space: profile and documents
 - [x] 8. Dashboards and reports
-- [ ] 9. Settings
+- [x] 9. Security review and production docs
 
 ## Step 1 notes
 
@@ -60,7 +60,7 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 
 ## Step 3 notes
 
-- Auth.js database sessions. Google and Microsoft Entra sign-in are limited to `AUTH_ALLOWED_EMAIL_DOMAIN` and require an existing active user. The shared password form is shown when `AUTH_DEV_LOGIN` is true and `AUTH_DEV_PASSWORD` is set, including in production.
+- Auth.js database sessions. Google and Microsoft Entra sign-in are limited to `AUTH_ALLOWED_EMAIL_DOMAIN` and require an existing active user. The shared password form is shown when `AUTH_DEV_LOGIN` is true and `AUTH_DEV_PASSWORD` is set. `isDevLoginEnabled` returns false when `NODE_ENV` is production, so that form cannot appear in production.
 - `can()` in `src/lib/permissions.ts` is used by the proxy, pages, actions, and the sidebar. Managers are scoped to direct reports once employee records exist.
 - Settings → Users and roles is Super Admin only. The audit log viewer and CSV export are Super Admin and HR Admin. The step 2 stub gate is replaced.
 - Each request checks status, expiry, and idle timeout (shorter for admin roles). This is not a scheduled job. Login, logout, failed login, role changes, and deactivation or reactivation are audited.
@@ -131,3 +131,18 @@ Steps 2–9 follow the areas named in the project brief. Rename a step if a late
 - Home is role-aware. Every user gets check-in, top paid leave balances, pending leave, the next three holidays, and document acknowledgements. Managers also get pending approvals, who is out, team attendance today, and missing punches, each limited to current direct reports. HR Admin and Super Admin also get company headcount, this month's joiners and exits, today's attendance summary, and pending HR actions. Every widget links to the page that acts on it.
 - `/reports` covers headcount (by department, location, or status), daily attendance, monthly attendance per employee, and leave balances. Filters, the table, and CSV export share `src/lib/services/reports.ts`. Managers see only direct reports. CSV writes `REPORT_EXPORTED`. `/reports/export` returns JSON 403 when the caller cannot view reports.
 - No new tables, environment variables, or scheduled jobs. Reports read existing employee, leave, and attendance rows.
+
+## Step 9 notes
+
+- Security review of the running app. No new product screens. The demo seed was left for the next prompt.
+- Database-backed sign-in rate limit (`auth_rate_limits`): 5 attempts per IP and per email in 15 minutes, and 60 `/api/auth` requests per IP. One `AUTH_LOGIN_LOCKED` row when a lockout starts. Generic error text.
+- Nonce Content-Security-Policy plus HSTS (production), `nosniff`, `no-referrer`, `X-Frame-Options: DENY`, and a locked-down Permissions-Policy. The root layout calls `connection()` so the nonce can be applied.
+- OAuth requires `email_verified === true`. Microsoft is registered only for a company-tenant issuer. Linking still requires a pre-created active user on the allowed domain.
+- Sessions have a fixed 7-day lifetime from `sessions.createdAt`. Activity updates `lastActiveAt` only. Idle timeouts are unchanged.
+- Audit IP uses `x-vercel-forwarded-for`, then `x-real-ip`. `X-Forwarded-For` is ignored.
+- Leave accrual, carry-forward, and attendance jobs isolate each employee, log failures, and exit 1 if any employee failed. Idempotency keys are unchanged.
+- S3 `PutObject` sets `ServerSideEncryption: AES256`. The bucket must also have default encryption and Block Public Access.
+- Unsigned `/api/*` returns JSON 401. `npm run db:backup` writes an encrypted `pg_dump` via `DIRECT_URL` to `BACKUP_DIR`.
+- New env vars: `BACKUP_DIR`, `BACKUP_ENCRYPTION_KEY`. New migration: `20261010211500_auth_rate_limit_and_session_start`.
+- Left as documented limitations: address, phone, and date of birth are stored in clear text in the audit log; marking an inbox notification read is not audited.
+- The README now has the backup and restore runbook, production deploy and rollback, and the pre-pilot checklist (SSO with MFA, real email, a tested S3 bucket, scheduled jobs, a tested backup, two HR Admin accounts, and a paid Neon plan).
