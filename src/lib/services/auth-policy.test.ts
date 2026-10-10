@@ -2,8 +2,10 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { createAuthAdapter } from "@/lib/auth-adapter";
 import {
+  companyTenantIssuer,
   evaluateSignIn,
   isCompanyEmail,
+  isCompanyTenantIssuer,
   isDevLoginEnabled,
   rejectSelfSignup,
 } from "@/lib/services/auth-policy";
@@ -36,7 +38,7 @@ describe("evaluateSignIn", () => {
     assert.deepEqual(
       evaluateSignIn({
         email: "asha@avanza.example",
-        emailVerified: null,
+        emailVerified: true,
         allowedDomain: domain,
         user: { status: "INACTIVE" },
       }),
@@ -60,7 +62,52 @@ describe("evaluateSignIn", () => {
       }),
       { ok: false, reason: "unverified-email" },
     );
+    assert.deepEqual(
+      evaluateSignIn({
+        email: "asha@avanza.example",
+        emailVerified: null,
+        allowedDomain: domain,
+        user: { status: "ACTIVE" },
+      }),
+      { ok: false, reason: "unverified-email" },
+    );
     assert.equal(isCompanyEmail("asha@sub.avanza.example", domain), false);
+  });
+
+  it("lets the dev password form skip the email_verified claim", () => {
+    assert.deepEqual(
+      evaluateSignIn({
+        email: "asha@avanza.example",
+        emailVerified: null,
+        allowedDomain: domain,
+        user: { status: "ACTIVE" },
+        devPassword: true,
+      }),
+      { ok: true },
+    );
+  });
+});
+
+const tenant = "11111111-2222-4333-8444-555555555555";
+
+describe("company tenant issuer", () => {
+  it("accepts one Entra tenant and rejects the common endpoints", () => {
+    const issuer = `https://login.microsoftonline.com/${tenant}/v2.0`;
+    assert.equal(isCompanyTenantIssuer(issuer), true);
+    assert.equal(isCompanyTenantIssuer("https://login.microsoftonline.com/common/v2.0"), false);
+    assert.equal(isCompanyTenantIssuer("https://login.microsoftonline.com/organizations/v2.0"), false);
+    assert.equal(isCompanyTenantIssuer("https://login.microsoftonline.com/consumers/v2.0"), false);
+    assert.equal(isCompanyTenantIssuer("http://login.microsoftonline.com/" + tenant + "/v2.0"), false);
+    assert.equal(isCompanyTenantIssuer("not a url"), false);
+    assert.equal(companyTenantIssuer({ NODE_ENV: "test", AUTH_MICROSOFT_ENTRA_ID_ISSUER: issuer }), issuer);
+    assert.equal(companyTenantIssuer({ NODE_ENV: "test", AUTH_MICROSOFT_ENTRA_ID_ISSUER: "" }), null);
+    assert.equal(
+      companyTenantIssuer({
+        NODE_ENV: "test",
+        AUTH_MICROSOFT_ENTRA_ID_ISSUER: "https://login.microsoftonline.com/common/v2.0",
+      }),
+      null,
+    );
   });
 });
 

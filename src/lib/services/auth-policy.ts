@@ -29,21 +29,58 @@ export function isCompanyEmail(email: string, allowedDomain: string): boolean {
   return normalized.slice(at + 1) === domain;
 }
 
+const COMMON_MICROSOFT_TENANTS = new Set(["common", "organizations", "consumers"]);
+const TENANT_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Microsoft sign-in is allowed only for one company tenant.
+ * `common`, `organizations`, and `consumers` accept accounts outside that tenant.
+ */
+export function isCompanyTenantIssuer(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    return false;
+  }
+  if (url.protocol !== "https:") return false;
+  const host = url.hostname.toLowerCase();
+  if (
+    host !== "login.microsoftonline.com" &&
+    host !== "login.microsoftonline.us" &&
+    host !== "login.partner.microsoftonline.cn"
+  ) {
+    return false;
+  }
+  const tenant = url.pathname.split("/").filter(Boolean)[0] ?? "";
+  if (!tenant || COMMON_MICROSOFT_TENANTS.has(tenant.toLowerCase())) return false;
+  return TENANT_ID.test(tenant);
+}
+
+export function companyTenantIssuer(env: NodeJS.ProcessEnv = process.env): string | null {
+  const issuer = env.AUTH_MICROSOFT_ENTRA_ID_ISSUER?.trim() ?? "";
+  return issuer && isCompanyTenantIssuer(issuer) ? issuer : null;
+}
+
 /**
  * Sign-in is allowed only for an existing ACTIVE user on the company domain.
- * Returning ok does not create a user.
+ * Returning ok does not create a user. OAuth also requires email_verified.
  */
 export function evaluateSignIn(input: {
   email: string | null | undefined;
   emailVerified: boolean | null;
   allowedDomain: string;
   user: { status: "ACTIVE" | "INACTIVE" } | null;
+  /** The shared dev password. It is not an identity-provider assertion. */
+  devPassword?: boolean;
 }): SignInDecision {
   const email = normalizeEmail(input.email);
   if (!email) {
     return { ok: false, reason: "missing-email" };
   }
-  if (input.emailVerified === false) {
+  // OAuth must prove the address. A missing claim is not verified.
+  // The dev password form is not an OAuth assertion and skips this check.
+  if (!input.devPassword && input.emailVerified !== true) {
     return { ok: false, reason: "unverified-email" };
   }
   if (!isCompanyEmail(email, input.allowedDomain)) {

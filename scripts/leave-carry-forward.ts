@@ -23,8 +23,14 @@ function yearFromArgs(argv: string[]): number {
 async function main() {
   const year = yearFromArgs(process.argv);
   const result = await runLeaveCarryForward({ year });
-  console.log(`Carry-forward for ${year} finished. Wrote ${result.written} row(s).`);
+  console.log(
+    `Carry-forward for ${year} finished. Wrote ${result.written} row(s). Failed ${result.failures.length} employee step(s).`,
+  );
+  for (const failure of result.failures) {
+    console.error(`${failure.employeeId}: ${failure.message}`);
+  }
   await getDb().$disconnect();
+  if (result.failures.length > 0) process.exit(1);
 }
 
 main().catch((error: unknown) => {

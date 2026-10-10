@@ -80,12 +80,23 @@ model Session {
   id           String   @id @default(cuid())
   sessionToken String   @unique
   userId       String
+  /// Set at sign-in. Activity must not move this, and must not move `expires` past it plus 7 days.
+  createdAt    DateTime @default(now())
   expires      DateTime
   lastActiveAt DateTime @default(now())
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@map("sessions")
+}
+
+/// Counters for sign-in and `/api/auth`. One row per key. The window does not slide.
+model AuthRateLimit {
+  key         String   @id
+  windowStart DateTime
+  count       Int
+
+  @@map("auth_rate_limits")
 }
 
 /// Append-only record of a state change. Rows are inserted, never updated or deleted.

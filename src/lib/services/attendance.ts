@@ -37,6 +37,7 @@ import {
 } from "@/lib/services/attendance-rules";
 import { AUDIT_ACTIONS, audit, type AuditDb } from "@/lib/services/audit";
 import { EmployeeAccessError } from "@/lib/services/employee-errors";
+import { forEachEmployee, type JobFailure } from "@/lib/services/job-isolation";
 import { lockApproval, lockEmployee } from "@/lib/services/leave-ledger";
 import { deliverMail, type MailMessage } from "@/lib/services/mail";
 
@@ -576,6 +577,7 @@ export type AttendanceJobSummary = {
   skipped: number;
   deferred: number;
   lockedDates: number;
+  failures: JobFailure[];
 };
 
 /**
@@ -607,6 +609,7 @@ export async function runAttendanceDaily(input: { now?: Date; date?: string } = 
     skipped: 0,
     deferred: 0,
     lockedDates: 0,
+    failures: [],
   };
   for (const date of dates) {
     if (isMonthLocked(date, today)) {
@@ -614,12 +617,12 @@ export async function runAttendanceDaily(input: { now?: Date; date?: string } = 
       continue;
     }
     const contexts = await loadDayContexts(getDb(), date);
-    for (const ctx of contexts) {
+    const outcome = await forEachEmployee(contexts, (ctx) => ctx.employeeId, async (ctx) => {
       if (!dayIsSettled(date, ctx.rule, now)) {
         summary.deferred += 1;
-        continue;
+        return;
       }
-      const outcome = await getDb().$transaction(async (tx) => {
+      const result = await getDb().$transaction(async (tx) => {
         await lockEmployee(tx, ctx.employeeId);
         const existing = await tx.attendanceRecord.findUnique({
           where: { employeeId_workDate: { employeeId: ctx.employeeId, workDate: parseIsoDate(date) } },
@@ -636,8 +639,9 @@ export async function runAttendanceDaily(input: { now?: Date; date?: string } = 
           actorId: null,
         });
       });
-      summary[outcome] += 1;
-    }
+      summary[result] += 1;
+    });
+    summary.failures.push(...outcome.failures);
   }
   return summary;
 }

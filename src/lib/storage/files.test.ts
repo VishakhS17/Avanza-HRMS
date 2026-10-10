@@ -11,6 +11,7 @@ import {
   sanitizeFileName,
   validateUpload,
 } from "@/lib/storage/files";
+import { encryptedPutInput } from "@/lib/storage/s3";
 import { createLocalStorage, LOCAL_FILE_ROUTE, serveLocalFile } from "@/lib/storage/local";
 
 const storageDir = mkdtempSync(path.join(tmpdir(), "avanza-files-"));
@@ -26,6 +27,22 @@ function tokenOf(url: string): string {
   assert.ok(url.startsWith(`${LOCAL_FILE_ROUTE}?token=`));
   return new URL(url, "http://localhost").searchParams.get("token") ?? "";
 }
+
+describe("S3 uploads", () => {
+  it("sets server-side encryption on every put", () => {
+    const body = new Uint8Array([1, 2, 3]);
+    const input = encryptedPutInput({
+      bucket: "private-docs",
+      key: "documents/abc",
+      body,
+      contentType: "application/pdf",
+    });
+    assert.equal(input.ServerSideEncryption, "AES256");
+    assert.equal(input.Bucket, "private-docs");
+    assert.equal(input.Key, "documents/abc");
+    assert.equal(input.ContentType, "application/pdf");
+  });
+});
 
 describe("upload validation", () => {
   it("detects PDF, PNG, and JPEG from their first bytes", () => {

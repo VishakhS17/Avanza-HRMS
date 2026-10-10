@@ -20,6 +20,7 @@
     "jobs:leave-accrual": "tsx scripts/leave-accrual.ts",
     "jobs:leave-carry-forward": "tsx scripts/leave-carry-forward.ts",
     "jobs:attendance-daily": "tsx scripts/attendance-daily.ts",
+    "db:backup": "node scripts/backup-database.mjs",
     "db:up": "node scripts/dev-postgres.mjs up",
     "db:down": "node scripts/dev-postgres.mjs down",
     "test": "node scripts/run-tests.mjs"

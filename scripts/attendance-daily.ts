@@ -18,9 +18,13 @@ async function main() {
   console.log(
     `Attendance job finished for ${range}. Created ${result.created}, updated ${result.updated}, unchanged ${result.unchanged}, ` +
       `skipped ${result.skipped} (regularized or overridden), deferred ${result.deferred} (shift still open), ` +
-      `locked ${result.lockedDates} date(s).`,
+      `locked ${result.lockedDates} date(s), failed ${result.failures.length}.`,
   );
+  for (const failure of result.failures) {
+    console.error(`${failure.employeeId}: ${failure.message}`);
+  }
   await getDb().$disconnect();
+  if (result.failures.length > 0) process.exit(1);
 }
 
 main().catch((error: unknown) => {

@@ -3,7 +3,7 @@ import { getDb } from "@/lib/db";
 import { buildPrincipal, type Principal, type Role } from "@/lib/permissions";
 import { listDirectReportIds } from "@/lib/services/users";
 
-/** Absolute cap for a session that stays active. Idle timeout is shorter. */
+/** Absolute lifetime from sign-in. Sliding activity does not extend it. Idle timeout is shorter. */
 export const SESSION_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 const ADMIN_IDLE_FALLBACK_MINUTES = 15;
@@ -21,17 +21,24 @@ export function idleTimeoutMs(roles: readonly Role[], env: NodeJS.ProcessEnv = p
 }
 
 /** Why a database session must be rejected. Null means the request may continue. */
+export function absoluteSessionEnd(createdAt: Date, maxAgeMs = SESSION_MAX_AGE_MS): Date {
+  return new Date(createdAt.getTime() + maxAgeMs);
+}
+
 export function sessionBlockReason(input: {
   status: "ACTIVE" | "INACTIVE";
+  createdAt: Date;
   expires: Date;
   lastActiveAt: Date;
   now: Date;
   idleTimeoutMs: number;
+  absoluteLifetimeMs?: number;
 }): SessionBlockReason | null {
   if (input.status !== "ACTIVE") {
     return "inactive";
   }
-  if (input.expires.getTime() <= input.now.getTime()) {
+  const cap = absoluteSessionEnd(input.createdAt, input.absoluteLifetimeMs ?? SESSION_MAX_AGE_MS);
+  if (input.expires.getTime() <= input.now.getTime() || cap.getTime() <= input.now.getTime()) {
     return "expired";
   }
   if (input.now.getTime() - input.lastActiveAt.getTime() > input.idleTimeoutMs) {
@@ -62,7 +69,8 @@ export function newSessionFields(userId: string, now = new Date()) {
   return {
     sessionToken: randomBytes(32).toString("base64url"),
     userId,
-    expires: new Date(now.getTime() + SESSION_MAX_AGE_MS),
+    createdAt: now,
+    expires: absoluteSessionEnd(now),
     lastActiveAt: now,
   };
 }
@@ -108,6 +116,7 @@ export async function authorizeSessionToken(
   });
   const reason = sessionBlockReason({
     status: session.user.status,
+    createdAt: session.createdAt,
     expires: session.expires,
     lastActiveAt: session.lastActiveAt,
     now,
@@ -122,10 +131,7 @@ export async function authorizeSessionToken(
   if (now.getTime() - session.lastActiveAt.getTime() > 60_000) {
     await getDb().session.update({
       where: { id: session.id },
-      data: {
-        lastActiveAt: now,
-        expires: new Date(now.getTime() + SESSION_MAX_AGE_MS),
-      },
+      data: { lastActiveAt: now },
     });
   }
 

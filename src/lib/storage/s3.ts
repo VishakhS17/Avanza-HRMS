@@ -1,4 +1,4 @@
-import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, GetObjectCommand, PutObjectCommand, type PutObjectCommandInput, S3Client } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { contentDisposition } from "@/lib/storage/files";
 import { StorageConfigError, type DocumentStorage } from "@/lib/storage/types";
@@ -8,6 +8,22 @@ function required(name: string): string {
   const value = process.env[name]?.trim();
   if (!value) throw new StorageConfigError(`${name} is not set.`);
   return value;
+}
+
+/** SSE-S3 on every upload. The bucket must also have default encryption and Block Public Access. */
+export function encryptedPutInput(input: {
+  bucket: string;
+  key: string;
+  body: Uint8Array;
+  contentType: string;
+}): PutObjectCommandInput {
+  return {
+    Bucket: input.bucket,
+    Key: input.key,
+    Body: input.body,
+    ContentType: input.contentType,
+    ServerSideEncryption: "AES256",
+  };
 }
 
 export function createS3Storage(): DocumentStorage {
@@ -23,9 +39,7 @@ export function createS3Storage(): DocumentStorage {
   });
   return {
     async put(key, body, contentType) {
-      await client.send(
-        new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType }),
-      );
+      await client.send(new PutObjectCommand(encryptedPutInput({ bucket, key, body, contentType })));
     },
     async signedUrl(key, options) {
       return getSignedUrl(

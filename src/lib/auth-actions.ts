@@ -13,6 +13,7 @@ import {
   normalizeEmail,
   secretsMatch,
 } from "@/lib/services/auth-policy";
+import { allowSignInAttempt } from "@/lib/services/auth-rate-limit";
 import { newSessionFields, sessionCookieName, sessionCookieOptions } from "@/lib/services/session";
 
 const DEV_LOGIN_FAILURE =
@@ -47,6 +48,14 @@ export async function devSignIn(
 
     const email = normalizeEmail(String(formData.get("email") ?? ""));
     const password = String(formData.get("password") ?? "");
+    const meta = readRequestMeta(await headers());
+    const allowed = await allowSignInAttempt({
+      ipAddress: meta.ipAddress,
+      email,
+      userAgent: meta.userAgent,
+    });
+    if (!allowed) return { error: DEV_LOGIN_FAILURE };
+
     const expected = process.env.AUTH_DEV_PASSWORD ?? "";
     if (!expected || !secretsMatch(password, expected)) {
       await recordFailedDevLogin(email, "invalid-credentials", null);
@@ -63,13 +72,13 @@ export async function devSignIn(
       emailVerified: null,
       allowedDomain: allowedEmailDomain(),
       user: user ? { status: user.status } : null,
+      devPassword: true,
     });
     if (!decision.ok || !user) {
       await recordFailedDevLogin(email, decision.ok ? "unknown-user" : decision.reason, user?.id ?? null);
       return { error: DEV_LOGIN_FAILURE };
     }
 
-    const meta = readRequestMeta(await headers());
     const session = newSessionFields(user.id);
     await getDb().$transaction(async (tx) => {
       await tx.session.create({ data: session });

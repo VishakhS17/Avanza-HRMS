@@ -19,6 +19,15 @@ export function createAuthAdapter(): Adapter {
       });
       return (user as AdapterUser | null) ?? null;
     },
+    async updateSession(session) {
+      if (!base.updateSession || !session.sessionToken) return null;
+      const existing = await getDb().session.findUnique({
+        where: { sessionToken: session.sessionToken },
+        select: { expires: true },
+      });
+      if (!existing) return null;
+      return base.updateSession({ ...session, expires: existing.expires });
+    },
     async updateUser({ id, ...data }) {
       const updated = await getDb().user.update({
         where: { id },

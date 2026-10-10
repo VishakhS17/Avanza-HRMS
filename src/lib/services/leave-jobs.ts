@@ -3,6 +3,7 @@ import { getDb } from "@/lib/db";
 import { addMonthsIso, formatIsoDate, todayIso } from "@/lib/leave-dates";
 import { AUDIT_ACTIONS } from "@/lib/services/audit";
 import { LeaveError } from "@/lib/services/leave-errors";
+import { forEachEmployee, type JobFailure } from "@/lib/services/job-isolation";
 import { lockEmployee, postLeaveLedger, sumLeaveLedger } from "@/lib/services/leave-ledger";
 
 function isUniqueConflict(error: unknown): boolean {
@@ -13,7 +14,10 @@ function isUniqueConflict(error: unknown): boolean {
  * Credits monthly and annual leave for the Asia/Kolkata month or year of `asOf`.
  * A second run for the same period does not add days. Pass `employeeIds` to limit the run.
  */
-export async function runLeaveAccrual(input?: { asOf?: Date; employeeIds?: string[] }) {
+export async function runLeaveAccrual(input?: { asOf?: Date; employeeIds?: string[] }): Promise<{
+  credited: number;
+  failures: JobFailure[];
+}> {
   const today = todayIso(input?.asOf ?? new Date());
   const month = today.slice(0, 7);
   const year = today.slice(0, 4);
@@ -27,15 +31,17 @@ export async function runLeaveAccrual(input?: { asOf?: Date; employeeIds?: strin
   });
 
   let credited = 0;
+  const failures: JobFailure[] = [];
   for (const policy of policies) {
     if (policy.accrualMode === "MANUAL" || !policy.leaveType.isActive) continue;
     if (policy.accrualDays.lessThanOrEqualTo(0)) continue;
     const period = policy.accrualMode === "MONTHLY" ? month : year;
-    for (const employee of employees) {
-      if (!policy.probationEligible) {
-        const end = addMonthsIso(formatIsoDate(employee.joiningDate), policy.probationMonths);
-        if (today < end) continue;
-      }
+    const eligible = employees.filter((employee) => {
+      if (policy.probationEligible) return true;
+      const end = addMonthsIso(formatIsoDate(employee.joiningDate), policy.probationMonths);
+      return today >= end;
+    });
+    const outcome = await forEachEmployee(eligible, (employee) => employee.id, async (employee) => {
       const key = `accrual:${employee.id}:${policy.leaveTypeId}:${period}`;
       try {
         const wrote = await getDb().$transaction(async (tx) => {
@@ -58,16 +64,20 @@ export async function runLeaveAccrual(input?: { asOf?: Date; employeeIds?: strin
       } catch (error) {
         if (!isUniqueConflict(error)) throw error;
       }
-    }
+    });
+    failures.push(...outcome.failures);
   }
-  return { credited };
+  return { credited, failures };
 }
 
 /**
  * For a completed calendar year, posts one carry-forward row per employee and type.
  * Days above the cap are removed. A second run for that year does nothing.
  */
-export async function runLeaveCarryForward(input: { year: number; employeeIds?: string[] }) {
+export async function runLeaveCarryForward(input: { year: number; employeeIds?: string[] }): Promise<{
+  written: number;
+  failures: JobFailure[];
+}> {
   if (!Number.isInteger(input.year) || input.year < 2000 || input.year > 2100) {
     throw new LeaveError("Choose a leave year between 2000 and 2100.");
   }
@@ -82,9 +92,10 @@ export async function runLeaveCarryForward(input: { year: number; employeeIds?: 
   });
 
   let written = 0;
+  const failures: JobFailure[] = [];
   for (const policy of policies) {
     if (!policy.leaveType.isActive) continue;
-    for (const employee of employees) {
+    const outcome = await forEachEmployee(employees, (employee) => employee.id, async (employee) => {
       const key = `carry:${employee.id}:${policy.leaveTypeId}:${input.year}`;
       try {
         const did = await getDb().$transaction(async (tx) => {
@@ -111,7 +122,8 @@ export async function runLeaveCarryForward(input: { year: number; employeeIds?: 
       } catch (error) {
         if (!isUniqueConflict(error)) throw error;
       }
-    }
+    });
+    failures.push(...outcome.failures);
   }
-  return { written };
+  return { written, failures };
 }

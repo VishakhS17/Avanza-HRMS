@@ -6,7 +6,8 @@ import { getDb } from "@/lib/db";
 import { readRequestMeta } from "@/lib/request-meta";
 import { createAuthAdapter } from "@/lib/auth-adapter";
 import { AUDIT_ACTIONS, audit } from "@/lib/services/audit";
-import { allowedEmailDomain, evaluateSignIn, normalizeEmail } from "@/lib/services/auth-policy";
+import { companyTenantIssuer, allowedEmailDomain, evaluateSignIn, normalizeEmail } from "@/lib/services/auth-policy";
+import { allowSignInAttempt } from "@/lib/services/auth-rate-limit";
 import { SESSION_MAX_AGE_MS, sessionCookieName, sessionUsesSecureCookie } from "@/lib/services/session";
 
 function emailVerifiedFlag(profile: unknown): boolean | null {
@@ -48,13 +49,13 @@ function configuredProviders(domain: string): Provider[] {
 
   const microsoftId = process.env.AUTH_MICROSOFT_ENTRA_ID_ID;
   const microsoftSecret = process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET;
-  if (microsoftId && microsoftSecret) {
-    const issuer = process.env.AUTH_MICROSOFT_ENTRA_ID_ISSUER;
+  const issuer = companyTenantIssuer();
+  if (microsoftId && microsoftSecret && issuer) {
     providers.push(
       MicrosoftEntraID({
         clientId: microsoftId,
         clientSecret: microsoftSecret,
-        ...(issuer ? { issuer } : {}),
+        issuer,
         allowDangerousEmailAccountLinking: true,
         profile(profile) {
           const raw = profile.email || profile.preferred_username || "";
@@ -77,7 +78,9 @@ export function oauthProviderFlags() {
   return {
     google: Boolean(process.env.AUTH_GOOGLE_ID && process.env.AUTH_GOOGLE_SECRET),
     microsoft: Boolean(
-      process.env.AUTH_MICROSOFT_ENTRA_ID_ID && process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET,
+      process.env.AUTH_MICROSOFT_ENTRA_ID_ID &&
+        process.env.AUTH_MICROSOFT_ENTRA_ID_SECRET &&
+        companyTenantIssuer(),
     ),
   };
 }
@@ -117,6 +120,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth((req) => {
               where: { email: { equals: email, mode: "insensitive" } },
             })
           : null;
+        const allowed = await allowSignInAttempt({
+          ipAddress: meta.ipAddress,
+          email,
+          actorId: existing?.id ?? null,
+          userAgent: meta.userAgent,
+        });
+        if (!allowed) return false;
         const decision = evaluateSignIn({
           email,
           emailVerified: emailVerifiedFlag(profile),
