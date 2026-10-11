@@ -8,12 +8,14 @@ App URL: [http://localhost:3000](http://localhost:3000). Sign in at `/login` wit
 
 Seeded users, after `npm run db:seed` and `npm run seed:handtest`. Addresses use `AUTH_ALLOWED_EMAIL_DOMAIN` (`avanza.example` in `.env.example`):
 
-| Who | Sign-in | Roles before this test |
-| --- | --- | --- |
-| Bootstrap admin | `AUTH_BOOTSTRAP_ADMIN_EMAIL` (`admin@avanza.example` in `.env.example`) | Super Admin. No employee record. |
-| Handtest Manager | `handtest.manager@…` (`HT-MGR`) | Manager. Nobody reports to the bootstrap admin. |
-| Handtest Employee A | `handtest.employee.a@…` (`HT-A`) | Employee. Reports to `HT-MGR`. |
-| Handtest Employee B | `handtest.employee.b@…` (`HT-B`) | Employee. No manager. |
+
+| Who                 | Sign-in                                                                 | Roles before this test                          |
+| ------------------- | ----------------------------------------------------------------------- | ----------------------------------------------- |
+| Bootstrap admin     | `AUTH_BOOTSTRAP_ADMIN_EMAIL` (`admin@avanza.example` in `.env.example`) | Super Admin. No employee record.                |
+| Handtest Manager    | `handtest.manager@…` (`HT-MGR`)                                         | Manager. Nobody reports to the bootstrap admin. |
+| Handtest Employee A | `handtest.employee.a@…` (`HT-A`)                                        | Employee. Reports to `HT-MGR`.                  |
+| Handtest Employee B | `handtest.employee.b@…` (`HT-B`)                                        | Employee. No manager.                           |
+
 
 Before the first document step, run `node scripts/assert-handtest-database.mjs`. It exits with no output when `.env` points at `avanza_hrms_dev`. If it refuses, stop. Do not copy a refusal that contains a host name.
 
@@ -40,10 +42,10 @@ A Super Admin cannot change their own roles. The audited path is a second Super 
 
 1. Stay on [http://localhost:3000/settings/users](http://localhost:3000/settings/users).
 2. Under **Add user**, enter:
-   - **Name:** `Handtest Super`
-   - **Work email:** `handtest.super@` plus `AUTH_ALLOWED_EMAIL_DOMAIN`
-   - **Roles:** check **Super Admin** only. Leave **HR Admin** and **Manager** unchecked. **Employee (every user)** stays checked and disabled.
-   - **Reason:** `Hand-test second Super Admin so HR Admin can be granted`
+  - **Name:** `Handtest Super`
+  - **Work email:** `handtest.super@` plus `AUTH_ALLOWED_EMAIL_DOMAIN`
+  - **Roles:** check **Super Admin** only. Leave **HR Admin** and **Manager** unchecked. **Employee (every user)** stays checked and disabled.
+  - **Reason:** `Hand-test second Super Admin so HR Admin can be granted`
 3. Click **Create user**. The form shows **Saved.**
 
 **Step B. Signed in as:** `handtest.super@…`.
@@ -59,6 +61,8 @@ A Super Admin cannot change their own roles. The audited path is a second Super 
 1. **Sign out**, then sign in as the bootstrap admin.
 2. The top bar reads **Super Admin · HR Admin**.
 3. The sidebar HR section now includes **Documents**.
+
+
 
 ### 3. Employee A uploads an Identity document
 
@@ -90,18 +94,20 @@ $bytes = [byte[]]::new((4MB) + 1)
 1. **Title:** `Too big`. **Category:** Identity. Choose `%TEMP%\oversize.pdf`. Click **Upload**.
 2. The form shows **Files must be 4 MB or smaller.** Nothing new appears under **Your files**.
 
+
+
 ### 4. HR uploads an Identity document on Employee A's behalf
 
 **Signed in as:** the bootstrap admin (now HR Admin).
 
 1. Open **People**, open **Handtest Employee A**, and click **Documents**. That opens `/documents?employee=` plus A's id. Or open [http://localhost:3000/documents/new](http://localhost:3000/documents/new) directly.
 2. Click **Upload** if you are on the list. On **Upload document**:
-   - **Category:** under **On behalf of an employee**, choose **Identity**. The hint is **An employee category. You are uploading on the employee's behalf.**
-   - **Title:** `PAN card`
-   - **Employee:** `Handtest Employee A (HT-A)`
-   - **Uploaded on behalf of:** `Paper copy collected at the Pune depot on 7 Oct.`
-   - Leave **Who can see it** on **Category default (Employee and HR)**. Leave **Expiry date** empty. There is no **Requires acknowledgement** checkbox for an employee category.
-   - **File:** a small PDF, PNG, or JPEG.
+  - **Category:** under **On behalf of an employee**, choose **Identity**. The hint is **An employee category. You are uploading on the employee's behalf.**
+  - **Title:** `PAN card`
+  - **Employee:** `Handtest Employee A (HT-A)`
+  - **Uploaded on behalf of:** `Paper copy collected at the Pune depot on 7 Oct.`
+  - Leave **Who can see it** on **Category default (Employee and HR)**. Leave **Expiry date** empty. There is no **Requires acknowledgement** checkbox for an employee category.
+  - **File:** a small PDF, PNG, or JPEG.
 3. Click **Upload**. The browser goes to `/documents/{id}`. Copy that id for section 7. Do not copy any later download token.
 4. The page header includes **Visible to employee and hr (category default)**. Under **Versions**, the uploaded line is the bootstrap admin's name plus **(HR, on behalf)**, and the note is under it.
 
@@ -110,6 +116,8 @@ $bytes = [byte[]]::new((4MB) + 1)
 1. Open [http://localhost:3000/my-space/documents](http://localhost:3000/my-space/documents) (**Mine**, not **From HR**).
 2. The PAN card is on **Your files**, with **Uploaded by** the bootstrap admin's name **(HR)** and **Note from HR:** followed by the sentence you typed.
 3. **Download** is present. **Remove** is absent (an employee can remove only a file they uploaded themselves). **Upload new version** is present.
+
+
 
 ### 5. Policy that requires acknowledgement
 
@@ -139,18 +147,22 @@ $bytes = [byte[]]::new((4MB) + 1)
 
 1. Open **From HR** again. The badge is **Pending acknowledgement**. The button is **I have read version 2**. The card says **Version 2**.
 
+
+
 ### 6. Inbox
 
 Open [http://localhost:3000/inbox](http://localhost:3000/inbox). Items are under **Notifications**. Each has **Open**. Opening Inbox marks them read, so the unread dot disappears on that visit; the title and body stay.
 
-| Event | Who sees it | Title | Body | Open goes to |
-| --- | --- | --- | --- | --- |
-| Employee A uploads Identity (section 3) | Every HR Admin except the uploader. Here, the bootstrap admin. Not Employee A, and not `handtest.super`. | `New document from Handtest Employee A` | `Identity: Aadhaar card` | `/documents/{id}` |
-| Employee A uploads a new version of their own file | Same HR Admins | `New version from Handtest Employee A` | `Identity: Aadhaar card (version 2)` | `/documents/{id}` |
-| HR uploads on behalf (section 4) | Employee A | `HR uploaded a document for you` | `Identity: PAN card` | `/my-space/documents` |
-| Policy upload with **Requires acknowledgement** (section 5) | Each selected employee. Not the bootstrap admin. | `Document to acknowledge` | `Policies: Code of conduct` | `/my-space/documents?shelf=hr` |
-| Employee acknowledges | Nobody | No new notification | | |
-| HR uploads version 2 of that policy | Each assignee | `Updated document to acknowledge` | `Policies: Code of conduct (version 2)` | `/my-space/documents?shelf=hr` |
+
+| Event                                                       | Who sees it                                                                                              | Title                                   | Body                                    | Open goes to                   |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | --------------------------------------- | --------------------------------------- | ------------------------------ |
+| Employee A uploads Identity (section 3)                     | Every HR Admin except the uploader. Here, the bootstrap admin. Not Employee A, and not `handtest.super`. | `New document from Handtest Employee A` | `Identity: Aadhaar card`                | `/documents/{id}`              |
+| Employee A uploads a new version of their own file          | Same HR Admins                                                                                           | `New version from Handtest Employee A`  | `Identity: Aadhaar card (version 2)`    | `/documents/{id}`              |
+| HR uploads on behalf (section 4)                            | Employee A                                                                                               | `HR uploaded a document for you`        | `Identity: PAN card`                    | `/my-space/documents`          |
+| Policy upload with **Requires acknowledgement** (section 5) | Each selected employee. Not the bootstrap admin.                                                         | `Document to acknowledge`               | `Policies: Code of conduct`             | `/my-space/documents?shelf=hr` |
+| Employee acknowledges                                       | Nobody                                                                                                   | No new notification                     |                                         |                                |
+| HR uploads version 2 of that policy                         | Each assignee                                                                                            | `Updated document to acknowledge`       | `Policies: Code of conduct (version 2)` | `/my-space/documents?shelf=hr` |
+
 
 There is no email for these events.
 
@@ -187,21 +199,25 @@ Use the Identity document id from the HR address bar (`/documents/{id}`). A forb
 3. The page text is **This link has expired. Open the document again.** The status is 410.
 4. Click **Download** on the card again. A new link downloads the file. The expired URL still fails.
 
+
+
 ### 8. Audit log
 
 **Signed in as:** the bootstrap admin (HR Admin can open the log; so can the Super Admin). Open [http://localhost:3000/settings/audit-log](http://localhost:3000/settings/audit-log). Set **Action**, leave **Entity type** as `Document` or `User` when you want to narrow it, and click **Apply**. **Actor** is the user id, not the name or email. Open **View** on a row for **Before** and **After**. The storage key does not appear. **After** for an upload includes `fileName`, `contentType`, `sizeBytes`, and `sha256`.
 
-| What you did | Action | Where the detail is |
-| --- | --- | --- |
-| Created `handtest.super` | `USER_CREATED` | Entity type `User`. Reason is the text from **Add user**. |
-| Granted HR Admin | `USER_ROLE_CHANGED` | Entity type `User`. **Reason** is the role-change text. **Before** roles are `SUPER_ADMIN` and `EMPLOYEE`. **After** roles are `SUPER_ADMIN`, `HR_ADMIN`, and `EMPLOYEE`. The actor id is `handtest.super`, not the bootstrap admin. |
-| Employee A uploaded Aadhaar | `DOCUMENT_UPLOADED` | `categoryCode` `IDENTITY`, `visibility` `EMPLOYEE_AND_HR`. |
-| Anyone downloaded Aadhaar (or PAN, or any category except Policies) | `DOCUMENT_VIEWED` | One row per **Download**, including HR. **After** has `categoryCode`, `versionNumber`, and `as` of `EMPLOYEE` or `HR`. Reusing the signed link does not add a row. |
-| HR uploaded PAN on behalf | `DOCUMENT_UPLOADED` | **Reason** is `Paper copy collected at the Pune depot on 7 Oct.` **After** has `onBehalf` true. |
-| Policy created with everyone selected | `DOCUMENT_UPLOADED` | `categoryCode` `POLICIES`, `requiresAcknowledgement` true, and `assigneeIds`. There is no `DOCUMENT_ASSIGNED` row for that first save. `DOCUMENT_ASSIGNED` is written only by **Assign selected** or **Assign to N active employees missing this document**. |
-| Employee A clicked **I have read version 1**, then version 2 | `DOCUMENT_ACKNOWLEDGED` | Two rows. **After** `versionNumber` is 1, then 2. |
-| HR uploaded policy version 2 | `DOCUMENT_VERSION_ADDED` | **Before** `versionNumber` 1. **After** `versionNumber` 2. |
-| Anyone downloaded the policy | No `DOCUMENT_VIEWED` | Filter **Action** to `DOCUMENT_VIEWED` and **Entity id** to the policy id. No row. Acknowledgements are still `DOCUMENT_ACKNOWLEDGED`. |
+
+| What you did                                                        | Action                   | Where the detail is                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------- | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Created `handtest.super`                                            | `USER_CREATED`           | Entity type `User`. Reason is the text from **Add user**.                                                                                                                                                                                                    |
+| Granted HR Admin                                                    | `USER_ROLE_CHANGED`      | Entity type `User`. **Reason** is the role-change text. **Before** roles are `SUPER_ADMIN` and `EMPLOYEE`. **After** roles are `SUPER_ADMIN`, `HR_ADMIN`, and `EMPLOYEE`. The actor id is `handtest.super`, not the bootstrap admin.                         |
+| Employee A uploaded Aadhaar                                         | `DOCUMENT_UPLOADED`      | `categoryCode` `IDENTITY`, `visibility` `EMPLOYEE_AND_HR`.                                                                                                                                                                                                   |
+| Anyone downloaded Aadhaar (or PAN, or any category except Policies) | `DOCUMENT_VIEWED`        | One row per **Download**, including HR. **After** has `categoryCode`, `versionNumber`, and `as` of `EMPLOYEE` or `HR`. Reusing the signed link does not add a row.                                                                                           |
+| HR uploaded PAN on behalf                                           | `DOCUMENT_UPLOADED`      | **Reason** is `Paper copy collected at the Pune depot on 7 Oct.` **After** has `onBehalf` true.                                                                                                                                                              |
+| Policy created with everyone selected                               | `DOCUMENT_UPLOADED`      | `categoryCode` `POLICIES`, `requiresAcknowledgement` true, and `assigneeIds`. There is no `DOCUMENT_ASSIGNED` row for that first save. `DOCUMENT_ASSIGNED` is written only by **Assign selected** or **Assign to N active employees missing this document**. |
+| Employee A clicked **I have read version 1**, then version 2        | `DOCUMENT_ACKNOWLEDGED`  | Two rows. **After** `versionNumber` is 1, then 2.                                                                                                                                                                                                            |
+| HR uploaded policy version 2                                        | `DOCUMENT_VERSION_ADDED` | **Before** `versionNumber` 1. **After** `versionNumber` 2.                                                                                                                                                                                                   |
+| Anyone downloaded the policy                                        | No `DOCUMENT_VIEWED`     | Filter **Action** to `DOCUMENT_VIEWED` and **Entity id** to the policy id. No row. Acknowledgements are still `DOCUMENT_ACKNOWLEDGED`.                                                                                                                       |
+
 
 `DOCUMENT_VIEWED` is written for every category marked sensitive: Identity, Address, Education, Certificates, Employment, Payslips, and Other HR. Policies is the one that is not.
 
@@ -215,3 +231,4 @@ Use the Identity document id from the HR address bar (`/documents/{id}`). A forb
 - Versions and acknowledgements are append-only.
 - The HR document list returns at most 500 rows.
 - The bootstrap admin has no employee record, so they are not assigned the policy and are not asked to acknowledge it. HR rights also do not apply to an HR Admin's own employee record, except Policies. That needs a second HR Admin, and it does not come up for the bootstrap account.
+
